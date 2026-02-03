@@ -2,10 +2,11 @@
 
 ## Project Overview
 
-**FileUzi** is an architectural filing widget designed to improve accuracy when storing key documents and make the process much quicker. This project is owned by JakeWhiteArchitecture and licensed under the MIT License.
+**FileUzi** is a PyQt6-based document filing widget designed for architectural practices. It streamlines the process of filing emails, attachments, and documents into structured project folders with features like automatic job number detection, drawing management, and duplicate handling.
 
 **Repository:** JakeWhiteArchitecture/FileUzi
-**License:** MIT (2026)
+**License:** MIT (2024 Jake White & Claude AI)
+**Tech Stack:** Python 3.9+, PyQt6
 **Status:** Early development stage
 
 ---
@@ -21,6 +22,12 @@ git add <files>               # Stage changes
 git commit -m "message"       # Commit with message
 git push -u origin <branch>   # Push to remote
 
+# Python operations (when set up)
+python -m venv venv           # Create virtual environment
+source venv/bin/activate      # Activate venv (Linux/Mac)
+pip install -r requirements.txt  # Install dependencies
+python main.py                # Run the application
+
 # Branch naming convention
 # Development branches should follow: claude/<description>-<session-id>
 ```
@@ -30,9 +37,11 @@ git push -u origin <branch>   # Push to remote
 | Path | Description |
 |------|-------------|
 | `/` | Repository root |
-| `/README.md` | Project description |
+| `/README.md` | Full project documentation with features and workflows |
 | `/LICENSE` | MIT License file |
 | `/CLAUDE.md` | This file - AI assistant guide |
+| `/src/` | [Planned] Source code directory |
+| `/tests/` | [Planned] Test files |
 
 ---
 
@@ -40,17 +49,36 @@ git push -u origin <branch>   # Push to remote
 
 ```
 FileUzi/
-├── LICENSE              # MIT License (2026 JakeWhiteArchitecture)
-├── README.md            # Project overview and description
-├── CLAUDE.md            # AI assistant guidelines (this file)
-├── src/                 # [Planned] Source code directory
-│   ├── components/      # [Planned] UI components
-│   ├── services/        # [Planned] Business logic and services
-│   ├── utils/           # [Planned] Utility functions
-│   └── types/           # [Planned] Type definitions
-├── tests/               # [Planned] Test files
-├── docs/                # [Planned] Documentation
-└── config/              # [Planned] Configuration files
+├── LICENSE                  # MIT License (2024 Jake White & Claude AI)
+├── README.md                # Full project documentation
+├── CLAUDE.md                # AI assistant guidelines (this file)
+├── requirements.txt         # [Planned] Python dependencies
+├── main.py                  # [Planned] Application entry point
+├── src/                     # [Planned] Source code directory
+│   ├── __init__.py
+│   ├── widgets/             # PyQt6 UI widgets
+│   │   ├── __init__.py
+│   │   └── filing_widget.py # Main filing widget
+│   ├── services/            # Business logic
+│   │   ├── __init__.py
+│   │   ├── email_parser.py  # Email parsing (.eml files)
+│   │   ├── job_detector.py  # Job number detection
+│   │   ├── file_manager.py  # File operations
+│   │   └── pdf_generator.py # Email to PDF conversion
+│   ├── utils/               # Utility functions
+│   │   ├── __init__.py
+│   │   └── helpers.py
+│   └── config/              # Configuration
+│       ├── __init__.py
+│       └── settings.py      # Email addresses, paths, etc.
+├── tests/                   # [Planned] Test files
+│   ├── __init__.py
+│   ├── test_email_parser.py
+│   ├── test_job_detector.py
+│   └── test_file_manager.py
+├── data/                    # [Planned] Data files
+│   └── project_mapping.csv  # Custom project reference mappings
+└── docs/                    # [Planned] Additional documentation
 ```
 
 > **Note:** Directories marked [Planned] do not exist yet. Create them as needed following the structure above.
@@ -64,20 +92,24 @@ FileUzi/
 When adding code to this project, follow these conventions:
 
 1. **File Naming**
-   - Use kebab-case for file names: `file-processor.ts`, `document-viewer.tsx`
-   - Use PascalCase for component files if using React: `DocumentCard.tsx`
-   - Test files should mirror source: `file-processor.test.ts`
+   - Use snake_case for Python files: `email_parser.py`, `file_manager.py`
+   - Use snake_case for functions and variables: `parse_email()`, `job_number`
+   - Use PascalCase for classes: `FilingWidget`, `EmailParser`
+   - Test files should mirror source: `test_email_parser.py`
 
 2. **Code Style**
-   - Prefer TypeScript over JavaScript for type safety
+   - Follow PEP 8 style guidelines
+   - Use type hints for function signatures
    - Use meaningful, descriptive variable and function names
    - Keep functions focused and single-purpose
+   - Add docstrings for public functions and classes
    - Add comments only where logic isn't self-evident
 
 3. **Architecture Principles**
-   - Separate concerns: UI, business logic, and data access
-   - Keep components small and reusable
-   - Use dependency injection where appropriate
+   - Separate concerns: UI (widgets), business logic (services), utilities
+   - Keep widgets focused on display and user interaction
+   - Put business logic in services, not in UI code
+   - Use signals/slots for PyQt6 communication patterns
    - Follow SOLID principles
 
 ### Git Workflow
@@ -102,11 +134,15 @@ When adding code to this project, follow these conventions:
 
 ### What is FileUzi?
 
-FileUzi is designed for **architectural firms** to:
-- Store and organize key documents (drawings, specifications, contracts, etc.)
-- Improve filing accuracy through intelligent categorization
-- Speed up the document storage and retrieval process
-- Provide a user-friendly widget interface
+FileUzi is designed for **architectural practices** to streamline document filing:
+
+- **Email Processing**: Parse .eml files, extract metadata, detect IN/OUT direction
+- **Attachment Management**: List attachments with size filtering (skip small signature images)
+- **Job Number Detection**: Auto-detect from filenames, subjects, or custom mappings
+- **Drawing Management**: File to Current Drawings, auto-supersede old revisions
+- **Email to PDF**: Generate PDFs from emails with embedded images preserved
+- **Duplicate Handling**: Project-wide scanning with skip/rename/overwrite options
+- **Secondary Filing**: File to multiple destinations with rule-based routing
 
 ### Target Users
 
@@ -118,10 +154,21 @@ FileUzi is designed for **architectural firms** to:
 
 | Term | Definition |
 |------|------------|
-| Filing Widget | The main UI component for document organization |
-| Document | Any file being stored (drawings, specs, contracts) |
-| Category | A classification for organizing documents |
-| Project | A container for related documents |
+| Filing Widget | The main PyQt6 UI component for document organization |
+| Job Number | Project identifier (e.g., `2505`) used for folder navigation |
+| Project Mapping | CSV file mapping client references to internal job numbers |
+| Direction | IN (received) or OUT (sent) email classification |
+| Current Drawings | Folder containing latest drawing revisions |
+| Superseded | Folder for older drawing revisions |
+| Import/Export Folder | Dated folders for incoming/outgoing documents |
+| Secondary Destination | Additional filing location beyond primary destination |
+
+### Key Workflows
+
+1. **Filing Incoming Email**: Drag .eml → auto-detect job → select attachments → file to import folder
+2. **Filing Outbound Email**: Drag .eml → detect OUT direction → optionally generate PDF → file to export folder
+3. **Filing Drawings**: Drag drawing → add Current Drawings as secondary → old revision auto-superseded
+4. **Custom Project Mapping**: Configure CSV → drag file with client reference → resolves to job number
 
 ---
 
@@ -133,12 +180,14 @@ FileUzi is designed for **architectural firms** to:
    - Read existing code before modifying it
    - Understand the context and purpose of files
    - Check for related tests and documentation
+   - Review README.md for feature specifications
 
 2. **Making Changes**
    - Keep changes focused and minimal
    - Don't over-engineer solutions
    - Avoid introducing security vulnerabilities
    - Follow existing patterns and conventions
+   - Use PyQt6 idioms (signals/slots, etc.)
 
 3. **After Making Changes**
    - Verify changes work as expected
@@ -155,10 +204,11 @@ FileUzi is designed for **architectural firms** to:
 
 ### Security Considerations
 
-- Never commit sensitive data (API keys, credentials)
-- Validate user input at system boundaries
-- Be cautious with file system operations
-- Follow OWASP guidelines for web applications
+- Never commit sensitive data (API keys, credentials, email addresses)
+- Validate file paths to prevent directory traversal
+- Be cautious with file system operations (use safe write patterns)
+- Sanitize filenames before writing
+- Follow OWASP guidelines
 
 ---
 
@@ -168,20 +218,44 @@ When tests are implemented, follow these practices:
 
 1. **Test Structure**
    - Place tests in `/tests/` directory mirroring `/src/`
-   - Name test files with `.test.ts` or `.spec.ts` suffix
-   - Group related tests with `describe` blocks
+   - Name test files with `test_` prefix: `test_email_parser.py`
+   - Use pytest as the testing framework
+   - Group related tests in classes or with descriptive function names
 
 2. **Test Coverage**
    - Write tests for new features and bug fixes
    - Cover edge cases and error conditions
-   - Aim for meaningful coverage, not just percentage
+   - Mock file system operations where appropriate
+   - Test PyQt6 widgets with pytest-qt
 
 3. **Running Tests**
    ```bash
-   # Commands to be defined when testing framework is set up
-   npm test           # Run all tests
-   npm test -- <file> # Run specific test file
+   # Run all tests
+   pytest
+
+   # Run specific test file
+   pytest tests/test_email_parser.py
+
+   # Run with coverage
+   pytest --cov=src
    ```
+
+---
+
+## Dependencies
+
+### Required
+- Python 3.9+
+- PyQt6
+
+### Optional (for PDF generation)
+- `weasyprint` (preferred)
+- `xhtml2pdf` (fallback)
+
+### Development
+- pytest
+- pytest-qt
+- pytest-cov
 
 ---
 
@@ -189,21 +263,50 @@ When tests are implemented, follow these practices:
 
 > **Note:** Build and deployment workflows are not yet configured. This section will be updated as the project evolves.
 
-### Planned Setup
+### Setup
 
 ```bash
-# Install dependencies (when package.json exists)
-npm install
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# venv\Scripts\activate   # Windows
 
-# Development server
-npm run dev
+# Install dependencies
+pip install -r requirements.txt
 
-# Build for production
-npm run build
-
-# Run linting
-npm run lint
+# Run application
+python main.py
 ```
+
+### Packaging (Planned)
+
+```bash
+# Build standalone executable with PyInstaller
+pyinstaller --onefile --windowed main.py
+```
+
+---
+
+## Configuration
+
+### Email Addresses
+Configure in `src/config/settings.py`:
+```python
+MY_EMAIL_ADDRESSES = [
+    "you@yourcompany.com",
+]
+```
+
+### Project Mapping
+Create `data/project_mapping.csv`:
+```csv
+custom_reference,local_job
+CLIENT-001,2505
+B-013,2507
+```
+
+### Minimum Attachment Size
+Default 3KB threshold to skip signature images.
 
 ---
 
@@ -225,6 +328,8 @@ npm run lint
 |-------|----------|
 | Git push fails with 403 | Ensure branch name follows correct pattern |
 | Network errors on push | Retry with exponential backoff (2s, 4s, 8s, 16s) |
+| PyQt6 import error | Ensure virtual environment is activated |
+| PDF generation fails | Install weasyprint or xhtml2pdf |
 
 ---
 
@@ -232,7 +337,8 @@ npm run lint
 
 ### 2026-02-03
 - Initial repository creation
-- Added README.md and LICENSE
+- Added README.md with full project documentation
+- Added LICENSE (MIT)
 - Created CLAUDE.md for AI assistant guidance
 
 ---
