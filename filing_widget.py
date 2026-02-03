@@ -67,6 +67,30 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QMimeData, QUrl, QStringListModel, QRect, QSize, QPoint
 from PyQt6.QtGui import QFont, QDragEnterEvent, QDropEvent, QDesktopServices, QPixmap
 
+# Import configuration from fileuzi package
+from fileuzi.config import (
+    PROJECTS_ROOT,
+    MY_EMAIL_ADDRESSES,
+    MIN_ATTACHMENT_SIZE,
+    MIN_EMBEDDED_IMAGE_SIZE,
+    DOMAIN_SUFFIXES,
+    COLORS,
+    SECONDARY_FILING_WIDTH,
+    MAX_CHIPS,
+    MAX_CHIP_TEXT_LENGTH,
+    MAX_HEADER_CHIP_LENGTH,
+    FILING_WIDGET_TOOLS_FOLDER,
+    DATABASE_FILENAME,
+    DATABASE_BACKUP_FILENAME,
+    FILING_RULES_FILENAME,
+    PROJECT_MAPPING_FILENAME,
+    OPERATIONS_LOG_FILENAME,
+    CIRCUIT_BREAKER_LIMIT,
+    SIGN_OFF_PATTERNS,
+    DATABASE_SCHEMA,
+    STAGE_HIERARCHY,
+)
+
 
 class FlowLayout(QLayout):
     """A layout that arranges widgets in a flowing manner, wrapping to next line."""
@@ -903,65 +927,12 @@ class FileDuplicateDialog(QDialog):
 # Add parent for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# ============================================================================
-# CONFIGURATION - Adjust these settings as needed
-# ============================================================================
-PROJECTS_ROOT = "/home/jake/TEST SERVER ENVIRONMENT/JWA_PROJECTS"
-
-# Email address(es) to detect IN/OUT direction
-# If email is FROM this address = OUT (export), TO this address = IN (import)
-MY_EMAIL_ADDRESSES = [
-    "jw@jakewhitearchitecture.com",
-    # Add more email addresses as needed
-]
-
-# Minimum attachment size to auto-select (bytes) - smaller files are likely signatures
-MIN_ATTACHMENT_SIZE = 3 * 1024  # 3KB
-
-# Minimum embedded image size for extraction (bytes) - filters out logos, icons, signatures
-MIN_EMBEDDED_IMAGE_SIZE = 20 * 1024  # 20KB
-
-# Domain suffixes to strip when extracting business name
-DOMAIN_SUFFIXES = ['.com', '.co.uk', '.org', '.net', '.io', '.co', '.uk', '.org.uk', '.gov.uk', '.ac.uk']
-# ============================================================================
-
 # Try to import from database for settings, but work standalone too
 try:
     from pyqt_app.database import get_session, Settings
     HAS_DATABASE = True
 except ImportError:
     HAS_DATABASE = False
-
-
-# Colors matching the main app
-COLORS = {
-    'primary': '#2563eb',
-    'success': '#10b981',
-    'warning': '#f59e0b',
-    'danger': '#ef4444',
-    'bg': '#f8fafc',
-    'surface': '#ffffff',
-    'border': '#e2e8f0',
-    'text': '#0f172a',
-    'text_secondary': '#64748b',
-}
-
-# Layout constants - secondary filing column width to align with buttons
-SECONDARY_FILING_WIDTH = 280  # Fixed width for "Also file to" column
-MAX_CHIPS = 3  # Maximum number of chips per attachment
-MAX_CHIP_TEXT_LENGTH = 15  # Truncate chip text longer than this with ellipsis
-MAX_HEADER_CHIP_LENGTH = 8  # Shorter truncation for header chips
-
-# Database and file location constants
-FILING_WIDGET_TOOLS_FOLDER = '*FILING-WIDGET-TOOLS*'
-DATABASE_FILENAME = 'filing_widget.db'
-DATABASE_BACKUP_FILENAME = 'filing_widget_backup.db'
-FILING_RULES_FILENAME = 'filing_rules.csv'
-PROJECT_MAPPING_FILENAME = 'custom_project_number_mapping.csv'
-OPERATIONS_LOG_FILENAME = 'filing_operations.log'
-
-# Circuit breaker threshold - maximum file operations per "File Now" action
-CIRCUIT_BREAKER_LIMIT = 20  # Base limit - will be scaled by file count
 
 # ============================================================================
 # SAFETY FEATURES - Path Jail & Circuit Breaker
@@ -1078,67 +1049,9 @@ def validate_path_jail(path, project_root):
 
     return resolved
 
-# Sign-off patterns for email body parsing (order matters - longer first)
-SIGN_OFF_PATTERNS = [
-    'kind regards',
-    'yours sincerely',
-    'yours faithfully',
-    'best wishes',
-    'best regards',
-    'warm regards',
-    'with thanks',
-    'many thanks',
-    'regards',
-    'thanks',
-]
-
 # ============================================================================
 # DATABASE FUNCTIONS
 # ============================================================================
-
-DATABASE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS emails (
-    message_id      TEXT PRIMARY KEY,
-    hash_fallback   TEXT,
-
-    sender_address  TEXT NOT NULL,
-    sender_name     TEXT,
-    recipient_to    TEXT,
-    recipient_cc    TEXT,
-    subject         TEXT NOT NULL,
-    date_sent       TEXT NOT NULL,
-
-    body_clean      TEXT,
-    sign_off_type   TEXT,
-
-    is_inbound      INTEGER DEFAULT 1,
-
-    filed_to        TEXT NOT NULL,
-    filed_also      TEXT,
-    filed_at        TEXT DEFAULT (datetime('now')),
-    tags            TEXT,
-
-    has_attachments  INTEGER DEFAULT 0,
-    attachment_names TEXT,
-    submission_type  TEXT,
-
-    source_path     TEXT,
-    created_at      TEXT DEFAULT (datetime('now')),
-
-    -- User-entered contact name (may differ from email sender)
-    contact_name    TEXT,
-    -- Job number for filtering contacts by project
-    job_number      TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_message_id ON emails(message_id);
-CREATE INDEX IF NOT EXISTS idx_hash_fallback ON emails(hash_fallback);
-CREATE INDEX IF NOT EXISTS idx_filed_to ON emails(filed_to);
-CREATE INDEX IF NOT EXISTS idx_submission_type ON emails(submission_type);
-CREATE INDEX IF NOT EXISTS idx_job_number ON emails(job_number);
-CREATE INDEX IF NOT EXISTS idx_sender ON emails(sender_address);
-CREATE INDEX IF NOT EXISTS idx_date_sent ON emails(date_sent);
-"""
 
 
 class HTMLTextExtractor(HTMLParser):
@@ -2105,9 +2018,6 @@ def is_drawing_pdf(filename, job_number, project_mapping=None):
 # ============================================================================
 # DRAWING REVISION SUPERSEDING
 # ============================================================================
-
-# Stage prefix hierarchy for new naming system (lower index = older/lower priority)
-STAGE_HIERARCHY = ['F', 'PL', 'P', 'W', 'C']
 
 
 def parse_drawing_filename_new(filename):
