@@ -8,30 +8,12 @@ Supports .eml files with automatic attachment extraction and direction detection
 import sys
 import os
 import re
-import csv
-import shutil
-import tempfile
-import email
-import sqlite3
-import hashlib
-import logging
 import argparse
-import base64
-from io import BytesIO
-from email import policy
-from email.utils import parsedate_to_datetime, parseaddr
+from email.utils import parseaddr
 from pathlib import Path
-from datetime import datetime, timezone
-from difflib import SequenceMatcher
-from html.parser import HTMLParser
+from datetime import datetime
 
-# Optional imports for email PDF generation
-try:
-    from PIL import Image
-    HAS_PIL = True
-except ImportError:
-    HAS_PIL = False
-
+# Optional imports for PDF generation capability check
 try:
     from weasyprint import HTML, CSS
     HAS_WEASYPRINT = True
@@ -44,78 +26,43 @@ try:
 except ImportError:
     HAS_XHTML2PDF = False
 
-# Check if any PDF renderer is available
 HAS_PDF_RENDERER = HAS_WEASYPRINT or HAS_XHTML2PDF
-
-# Optional import for PDF metadata and content extraction
-try:
-    from pypdf import PdfReader
-    HAS_PYPDF = True
-except ImportError:
-    try:
-        from PyPDF2 import PdfReader
-        HAS_PYPDF = True
-    except ImportError:
-        HAS_PYPDF = False
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QRadioButton, QButtonGroup,
-    QFrame, QMessageBox, QFileDialog, QComboBox, QCheckBox,
-    QScrollArea, QSizePolicy, QCompleter, QLayout, QDialog, QMenu
+    QFrame, QMessageBox, QComboBox, QCheckBox,
+    QScrollArea, QSizePolicy, QCompleter, QMenu
 )
-from PyQt6.QtCore import Qt, QMimeData, QUrl, QStringListModel, QRect, QSize, QPoint
-from PyQt6.QtGui import QFont, QDragEnterEvent, QDropEvent, QDesktopServices, QPixmap
+from PyQt6.QtCore import Qt, QStringListModel
+from PyQt6.QtGui import QFont
 
 # Import configuration from fileuzi package
 from fileuzi.config import (
     PROJECTS_ROOT,
-    MY_EMAIL_ADDRESSES,
     MIN_ATTACHMENT_SIZE,
-    MIN_EMBEDDED_IMAGE_SIZE,
-    DOMAIN_SUFFIXES,
     COLORS,
     SECONDARY_FILING_WIDTH,
     MAX_CHIPS,
-    MAX_CHIP_TEXT_LENGTH,
-    MAX_HEADER_CHIP_LENGTH,
-    FILING_WIDGET_TOOLS_FOLDER,
-    DATABASE_FILENAME,
-    DATABASE_BACKUP_FILENAME,
     FILING_RULES_FILENAME,
-    PROJECT_MAPPING_FILENAME,
-    OPERATIONS_LOG_FILENAME,
-    CIRCUIT_BREAKER_LIMIT,
-    SIGN_OFF_PATTERNS,
-    DATABASE_SCHEMA,
-    STAGE_HIERARCHY,
 )
 
 # Import utilities from fileuzi package
 from fileuzi.utils import (
     PathJailViolation,
     CircuitBreakerTripped,
-    FileOperationCounter,
     get_circuit_breaker,
-    validate_path_jail,
     get_tools_folder_path,
     ensure_tools_folder,
-    get_operations_log_path,
     get_file_ops_logger,
     safe_copy,
-    safe_move,
     safe_write_attachment,
-    HTMLTextExtractor,
 )
 
 # Import database functions from fileuzi package
 from fileuzi.database import (
     get_database_path,
-    get_database_backup_path,
-    check_database_integrity,
-    backup_database,
     init_database,
-    check_database_exists,
     verify_database_schema,
     generate_email_hash,
     check_duplicate_email,
@@ -127,56 +74,28 @@ from fileuzi.database import (
 
 # Import services from fileuzi package
 from fileuzi.services import (
-    # Email parser
-    extract_email_body,
-    extract_email_html_body,
-    parse_body_with_signoff,
     parse_eml_file,
-    is_my_email,
     detect_email_direction,
     extract_embedded_images,
-    extract_business_from_domain,
     get_sender_name_and_business,
-    # Job detector
     scan_projects_folder,
     parse_folder_name,
     extract_job_number_from_filename,
     find_job_number_from_path,
     is_embedded_image,
     detect_project_from_subject,
-    # Filing rules
-    get_filing_rules_path,
-    get_project_mapping_path,
     load_project_mapping,
-    apply_project_mapping,
     load_filing_rules,
-    match_filing_rules,
     match_filing_rules_cascade,
-    # Drawing manager
     is_drawing_pdf,
-    parse_drawing_filename_new,
-    parse_drawing_filename_old,
-    parse_drawing_filename,
-    compare_drawing_revisions,
-    find_matching_drawings,
     supersede_drawings,
     is_current_drawings_folder,
-    # PDF generator
-    is_junk_pdf_line,
-    is_valid_pdf_title,
-    extract_pdf_metadata_title,
-    extract_pdf_first_content,
     convert_image_to_png,
     clean_subject_for_filename,
     generate_email_pdf,
     generate_screenshot_filenames,
-    check_unique_pdf_filename,
-    should_capture_outbound_email,
     process_outbound_email_capture,
-    # Duplicate scanner
     scan_for_file_duplicates,
-    # Contact utils
-    parse_import_export_folder,
     find_previous_contacts,
     fuzzy_match_contact,
 )
@@ -185,7 +104,6 @@ from fileuzi.services import (
 from fileuzi.ui import (
     FlowLayout,
     ClickableWordLabel,
-    FilingChip,
     AttachmentWidget,
     DropZone,
     SuccessDialog,
