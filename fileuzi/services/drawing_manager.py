@@ -68,9 +68,12 @@ def parse_drawing_filename_new(filename):
     Example: 2506_22_PROPOSED SECTIONS_C02.pdf
 
     Returns:
-        dict with keys: job, drawing_num, name, stage, revision, format
+        dict with keys: job, drawing, name, stage, revision, format
         None if parsing fails
     """
+    if filename is None:
+        return None
+
     if not filename.lower().endswith('.pdf'):
         return None
 
@@ -96,7 +99,7 @@ def parse_drawing_filename_new(filename):
 
     return {
         'job': job,
-        'drawing_num': drawing_num,
+        'drawing': drawing_num,
         'name': name,
         'stage': stage,
         'revision': revision,
@@ -112,9 +115,12 @@ def parse_drawing_filename_old(filename):
     Example: 2506 - 04A - PROPOSED PLANS AND ELEVATIONS.pdf
 
     Returns:
-        dict with keys: job, drawing_num, name, revision_letter, format
+        dict with keys: job, drawing, name, revision_letter, format
         None if parsing fails
     """
+    if filename is None:
+        return None
+
     if not filename.lower().endswith('.pdf'):
         return None
 
@@ -139,7 +145,7 @@ def parse_drawing_filename_old(filename):
 
     return {
         'job': job,
-        'drawing_num': drawing_num,
+        'drawing': drawing_num,
         'name': name,
         'revision_letter': revision_letter,
         'format': 'old'
@@ -232,7 +238,7 @@ def find_matching_drawings(current_drawings_folder, job_number, drawing_number):
         if parsed is None:
             continue
 
-        if parsed['job'] == str(job_number) and parsed['drawing_num'] == str(drawing_number):
+        if parsed['job'] == str(job_number) and parsed['drawing'] == str(drawing_number):
             matches.append((item, parsed))
 
     return matches
@@ -258,7 +264,7 @@ def supersede_drawings(current_drawings_folder, new_file_path, projects_root, ci
     matches = find_matching_drawings(
         current_drawings_folder,
         new_parsed['job'],
-        new_parsed['drawing_num']
+        new_parsed['drawing']
     )
 
     matches = [(path, parsed) for path, parsed in matches if path != new_file]
