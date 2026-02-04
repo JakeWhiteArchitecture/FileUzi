@@ -276,7 +276,8 @@ class TestAttachmentExtraction:
 
         # Only the 25KB image should pass the 20KB threshold
         # The 10KB image should be filtered
-        large_images = [img for img in embedded if len(img[1]) >= 20 * 1024]
+        # extract_embedded_images returns list of dicts with 'data' and 'size' keys
+        large_images = [img for img in embedded if img['size'] >= 20 * 1024]
         assert len(large_images) >= 1
 
 

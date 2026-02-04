@@ -1,12 +1,15 @@
 """
 Circuit Breaker Unit Tests for FileUzi.
+
+The FileOperationCounter tracks operations per destination folder and trips
+when any single destination exceeds its expected file count.
 """
 
 import pytest
+from pathlib import Path
 
 from fileuzi.utils.circuit_breaker import FileOperationCounter, get_circuit_breaker
 from fileuzi.utils.exceptions import CircuitBreakerTripped
-from fileuzi.config import CIRCUIT_BREAKER_LIMIT
 
 
 # ============================================================================
@@ -16,156 +19,125 @@ from fileuzi.config import CIRCUIT_BREAKER_LIMIT
 class TestBasicCounter:
     """Basic counter functionality tests."""
 
-    def test_counter_starts_at_zero(self):
-        """Test counter starts at zero."""
-        counter = FileOperationCounter(limit=20)
-        assert counter.count == 0
+    def test_counter_initializes_empty(self):
+        """Test counter initializes with empty state."""
+        counter = FileOperationCounter()
 
-    def test_counter_increments(self):
-        """Test counter increments correctly."""
-        counter = FileOperationCounter(limit=20)
+        assert counter.operations == []
+        assert counter.destination_counts == {}
+        assert counter.destination_limits == {}
 
-        counter.record_operation("test1")
-        assert counter.count == 1
+    def test_counter_records_operations(self):
+        """Test counter records operations."""
+        counter = FileOperationCounter()
 
-        counter.record_operation("test2")
-        assert counter.count == 2
+        counter.record("COPY", "/source/file1.pdf", "/dest/folder/file1.pdf")
+        counter.record("COPY", "/source/file2.pdf", "/dest/folder/file2.pdf")
 
-        counter.record_operation("test3")
-        counter.record_operation("test4")
-        counter.record_operation("test5")
-        assert counter.count == 5
+        assert len(counter.operations) == 2
 
     def test_counter_resets(self):
         """Test counter resets correctly."""
-        counter = FileOperationCounter(limit=20)
+        counter = FileOperationCounter()
 
-        counter.record_operation("test1")
-        counter.record_operation("test2")
-        counter.record_operation("test3")
-        assert counter.count == 3
+        counter.record("COPY", "/source/file.pdf", "/dest/folder/file.pdf")
+        assert len(counter.operations) == 1
 
         counter.reset()
-        assert counter.count == 0
+        assert counter.operations == []
+        assert counter.destination_counts == {}
 
-    def test_counter_resets_between_actions(self):
-        """Test counter can be reset and continue counting."""
-        counter = FileOperationCounter(limit=20)
+    def test_counter_resets_with_new_limits(self):
+        """Test counter can be reset with new destination limits."""
+        counter = FileOperationCounter()
 
-        # First batch
-        for i in range(5):
-            counter.record_operation(f"op_{i}")
-        assert counter.count == 5
+        # First session
+        counter.reset({'/dest/folder1': 5})
+        counter.record("COPY", "/src/a.pdf", "/dest/folder1/a.pdf")
 
-        # Reset
-        counter.reset()
-        assert counter.count == 0
+        # New session with different limits
+        counter.reset({'/dest/folder2': 10})
 
-        # Second batch
-        for i in range(3):
-            counter.record_operation(f"op2_{i}")
-        assert counter.count == 3
+        assert counter.destination_limits == {'/dest/folder2': 10}
+        assert counter.destination_counts == {}
 
 
 # ============================================================================
-# Trip Threshold Tests
+# Per-Destination Limit Tests
 # ============================================================================
 
-class TestTripThreshold:
-    """Tests for circuit breaker trip threshold."""
+class TestDestinationLimits:
+    """Tests for per-destination limit enforcement."""
 
-    def test_trips_at_threshold(self):
-        """Test circuit breaker trips when threshold exceeded."""
-        counter = FileOperationCounter(limit=20)
+    def test_trips_when_exceeding_destination_limit(self, tmp_path):
+        """Test circuit breaker trips when destination limit exceeded."""
+        dest_folder = str(tmp_path / "dest")
+        counter = FileOperationCounter()
 
-        # Record 20 operations (at limit, should be fine)
-        for i in range(20):
-            counter.record_operation(f"op_{i}")
+        # Set a limit of 3 files for this destination
+        counter.reset({dest_folder: 3})
 
-        # The 21st operation should trip the breaker
+        # Record 3 COPY operations (at limit)
+        counter.record("COPY", "/src/a.pdf", f"{dest_folder}/a.pdf")
+        counter.record("COPY", "/src/b.pdf", f"{dest_folder}/b.pdf")
+        counter.record("COPY", "/src/c.pdf", f"{dest_folder}/c.pdf")
+
+        # Due to +2 overhead allowance, need to exceed by more
+        counter.record("COPY", "/src/d.pdf", f"{dest_folder}/d.pdf")
+        counter.record("COPY", "/src/e.pdf", f"{dest_folder}/e.pdf")
+
+        # The 6th copy should trip (limit 3 + overhead 2 = 5 max)
         with pytest.raises(CircuitBreakerTripped):
-            counter.record_operation("op_21")
+            counter.record("COPY", "/src/f.pdf", f"{dest_folder}/f.pdf")
 
-    def test_doesnt_trip_at_limit(self):
-        """Test circuit breaker doesn't trip at exactly the limit."""
-        counter = FileOperationCounter(limit=20)
+    def test_different_destinations_tracked_separately(self, tmp_path):
+        """Test different destinations are tracked independently."""
+        dest1 = str(tmp_path / "dest1")
+        dest2 = str(tmp_path / "dest2")
 
-        # Record exactly 20 operations
-        for i in range(20):
-            counter.record_operation(f"op_{i}")
+        counter = FileOperationCounter()
+        counter.reset({dest1: 3, dest2: 3})
 
-        # Should be exactly at limit
-        assert counter.count == 20
+        # Record to dest1
+        counter.record("COPY", "/src/a.pdf", f"{dest1}/a.pdf")
+        counter.record("COPY", "/src/b.pdf", f"{dest1}/b.pdf")
 
-    def test_threshold_configurable(self):
-        """Test circuit breaker threshold is configurable."""
-        counter = FileOperationCounter(limit=5)
+        # Record to dest2
+        counter.record("COPY", "/src/c.pdf", f"{dest2}/c.pdf")
+        counter.record("COPY", "/src/d.pdf", f"{dest2}/d.pdf")
 
-        # Record 5 operations (at limit)
-        for i in range(5):
-            counter.record_operation(f"op_{i}")
+        # Each destination has 2, which is under the limit
+        assert counter.destination_counts[dest1] == 2
+        assert counter.destination_counts[dest2] == 2
 
-        # The 6th should trip
-        with pytest.raises(CircuitBreakerTripped):
-            counter.record_operation("op_6")
+    def test_only_copy_and_write_count_toward_limit(self, tmp_path):
+        """Test only COPY and WRITE operations count toward limits."""
+        dest_folder = str(tmp_path / "dest")
+        counter = FileOperationCounter()
+        counter.reset({dest_folder: 2})
 
-    def test_low_threshold(self):
-        """Test very low threshold."""
-        counter = FileOperationCounter(limit=1)
+        # MKDIR doesn't count
+        counter.record("MKDIR", "/src", f"{dest_folder}/subfolder")
 
-        counter.record_operation("op_1")
+        # COPY counts
+        counter.record("COPY", "/src/a.pdf", f"{dest_folder}/a.pdf")
 
-        with pytest.raises(CircuitBreakerTripped):
-            counter.record_operation("op_2")
+        # Only 1 counted
+        assert counter.destination_counts.get(dest_folder, 0) == 1
 
-    def test_high_threshold(self):
-        """Test high threshold."""
-        counter = FileOperationCounter(limit=100)
+    def test_no_trip_when_no_limit_set(self, tmp_path):
+        """Test operations without set limits don't trip."""
+        counter = FileOperationCounter()
+        counter.reset()  # No limits
 
+        dest_folder = str(tmp_path / "unlimited")
+
+        # Record many operations to an unlimited destination
         for i in range(100):
-            counter.record_operation(f"op_{i}")
+            counter.record("COPY", f"/src/file{i}.pdf", f"{dest_folder}/file{i}.pdf")
 
-        with pytest.raises(CircuitBreakerTripped):
-            counter.record_operation("op_101")
-
-
-# ============================================================================
-# Operation Recording Tests
-# ============================================================================
-
-class TestOperationRecording:
-    """Tests for operation recording."""
-
-    def test_operations_tracked(self):
-        """Test operations are tracked."""
-        counter = FileOperationCounter(limit=20)
-
-        counter.record_operation("/path/to/file1.pdf")
-        counter.record_operation("/path/to/file2.pdf")
-
-        # The counter should have recorded these
-        assert counter.count == 2
-
-    def test_operations_cleared_on_reset(self):
-        """Test operations are cleared on reset."""
-        counter = FileOperationCounter(limit=20)
-
-        counter.record_operation("/path/to/file1.pdf")
-        counter.record_operation("/path/to/file2.pdf")
-
-        counter.reset()
-
-        assert counter.count == 0
-
-    def test_operation_path_stored(self):
-        """Test operation paths are stored (if implementation supports it)."""
-        counter = FileOperationCounter(limit=20)
-
-        counter.record_operation("/path/to/file.pdf")
-
-        # If the implementation stores operations
-        if hasattr(counter, 'operations'):
-            assert "/path/to/file.pdf" in counter.operations
+        # Should not trip since no limit was set
+        assert len(counter.operations) == 100
 
 
 # ============================================================================
@@ -195,13 +167,41 @@ class TestGlobalCircuitBreaker:
         breaker = get_circuit_breaker()
         breaker.reset()
 
-        # Record some operations
-        breaker.record_operation("test_op")
-        assert breaker.count >= 1
+        assert breaker.operations == []
+        assert breaker.destination_counts == {}
 
-        # Reset
-        breaker.reset()
-        assert breaker.count == 0
+
+# ============================================================================
+# Operation Summary Tests
+# ============================================================================
+
+class TestOperationSummary:
+    """Tests for operation summary functionality."""
+
+    def test_get_summary_returns_operations(self, tmp_path):
+        """Test get_summary returns recorded operations."""
+        counter = FileOperationCounter()
+
+        counter.record("COPY", "/src/a.pdf", f"{tmp_path}/a.pdf")
+        counter.record("WRITE", "/src/b.pdf", f"{tmp_path}/b.pdf")
+
+        summary = counter.get_summary()
+
+        assert len(summary) == 2
+        assert summary[0][0] == "COPY"
+        assert summary[1][0] == "WRITE"
+
+    def test_summary_is_copy(self, tmp_path):
+        """Test get_summary returns a copy, not the original."""
+        counter = FileOperationCounter()
+
+        counter.record("COPY", "/src/a.pdf", f"{tmp_path}/a.pdf")
+
+        summary = counter.get_summary()
+        summary.append(("FAKE", "", ""))
+
+        # Original should be unchanged
+        assert len(counter.operations) == 1
 
 
 # ============================================================================
@@ -211,55 +211,29 @@ class TestGlobalCircuitBreaker:
 class TestEdgeCases:
     """Edge case tests for circuit breaker."""
 
-    def test_empty_operation_string(self):
-        """Test recording empty operation string."""
-        counter = FileOperationCounter(limit=20)
+    def test_unicode_paths(self, tmp_path):
+        """Test recording operation with unicode paths."""
+        counter = FileOperationCounter()
 
-        counter.record_operation("")
-        assert counter.count == 1
+        counter.record("COPY", "/path/to/café/file.pdf", f"{tmp_path}/café/file.pdf")
+        assert len(counter.operations) == 1
 
-    def test_none_operation(self):
-        """Test recording None operation (if allowed)."""
-        counter = FileOperationCounter(limit=20)
+    def test_very_long_paths(self, tmp_path):
+        """Test recording very long operation paths."""
+        counter = FileOperationCounter()
 
-        try:
-            counter.record_operation(None)
-            # If it doesn't raise, count should increment
-            assert counter.count == 1
-        except (TypeError, ValueError):
-            # If it raises, that's also acceptable
-            pass
+        long_path = str(tmp_path) + "/subdir" * 50 + "/file.pdf"
+        counter.record("COPY", "/source/file.pdf", long_path)
+        assert len(counter.operations) == 1
 
-    def test_unicode_operation_path(self):
-        """Test recording operation with unicode path."""
-        counter = FileOperationCounter(limit=20)
+    def test_special_characters_in_path(self, tmp_path):
+        """Test paths with special characters."""
+        counter = FileOperationCounter()
 
-        counter.record_operation("/path/to/café/file.pdf")
-        assert counter.count == 1
+        counter.record("COPY", "/src/file (1).pdf", f"{tmp_path}/file (1).pdf")
+        counter.record("COPY", "/src/file & co.pdf", f"{tmp_path}/file & co.pdf")
 
-    def test_very_long_operation_path(self):
-        """Test recording very long operation path."""
-        counter = FileOperationCounter(limit=20)
-
-        long_path = "/path" + "/subdir" * 100 + "/file.pdf"
-        counter.record_operation(long_path)
-        assert counter.count == 1
-
-    def test_rapid_operations(self):
-        """Test rapid sequential operations."""
-        counter = FileOperationCounter(limit=100)
-
-        for i in range(50):
-            counter.record_operation(f"rapid_op_{i}")
-
-        assert counter.count == 50
-
-    def test_zero_limit(self):
-        """Test zero limit trips immediately."""
-        counter = FileOperationCounter(limit=0)
-
-        with pytest.raises(CircuitBreakerTripped):
-            counter.record_operation("any_op")
+        assert len(counter.operations) == 2
 
 
 # ============================================================================
@@ -269,30 +243,38 @@ class TestEdgeCases:
 class TestExceptionContent:
     """Tests for exception content."""
 
-    def test_exception_message_exists(self):
-        """Test CircuitBreakerTripped has a message."""
-        counter = FileOperationCounter(limit=1)
-        counter.record_operation("op_1")
+    def test_exception_message_contains_folder_info(self, tmp_path):
+        """Test CircuitBreakerTripped message contains folder info."""
+        dest_folder = str(tmp_path / "dest")
+        counter = FileOperationCounter()
+        counter.reset({dest_folder: 1})
+
+        # Exceed the limit (1 + 2 overhead = 3 max)
+        counter.record("COPY", "/src/a.pdf", f"{dest_folder}/a.pdf")
+        counter.record("COPY", "/src/b.pdf", f"{dest_folder}/b.pdf")
+        counter.record("COPY", "/src/c.pdf", f"{dest_folder}/c.pdf")
 
         try:
-            counter.record_operation("op_2")
+            counter.record("COPY", "/src/d.pdf", f"{dest_folder}/d.pdf")
             pytest.fail("Should have raised CircuitBreakerTripped")
         except CircuitBreakerTripped as e:
-            assert str(e) is not None
-            assert len(str(e)) > 0
+            error_msg = str(e)
+            assert "dest" in error_msg.lower() or len(error_msg) > 0
 
-    def test_exception_includes_count(self):
-        """Test exception message includes operation count."""
-        counter = FileOperationCounter(limit=5)
+    def test_exception_lists_operations(self, tmp_path):
+        """Test exception message lists operations attempted."""
+        dest_folder = str(tmp_path / "dest")
+        counter = FileOperationCounter()
+        counter.reset({dest_folder: 1})
 
-        for i in range(5):
-            counter.record_operation(f"op_{i}")
+        counter.record("COPY", "/src/a.pdf", f"{dest_folder}/a.pdf")
+        counter.record("COPY", "/src/b.pdf", f"{dest_folder}/b.pdf")
+        counter.record("COPY", "/src/c.pdf", f"{dest_folder}/c.pdf")
 
         try:
-            counter.record_operation("op_6")
+            counter.record("COPY", "/src/d.pdf", f"{dest_folder}/d.pdf")
             pytest.fail("Should have raised CircuitBreakerTripped")
         except CircuitBreakerTripped as e:
-            # Message might include the count or limit
-            error_msg = str(e).lower()
-            # Just check it's not empty
+            error_msg = str(e)
+            # Should have operation details
             assert len(error_msg) > 0

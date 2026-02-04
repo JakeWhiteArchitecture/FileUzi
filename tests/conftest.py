@@ -2,10 +2,17 @@
 Shared fixtures for FileUzi tests.
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to path so tests can import fileuzi modules
+PROJECT_ROOT = Path(__file__).parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import pytest
 import sqlite3
 import os
-from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase

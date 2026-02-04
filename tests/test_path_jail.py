@@ -21,28 +21,28 @@ class TestValidPaths:
         """Test path within project root is valid."""
         valid_path = project_root / "2506_SMITH-EXTENSION" / "ADMIN" / "file.pdf"
 
-        # Should not raise
+        # Should not raise, returns resolved path string
         result = validate_path_jail(valid_path, project_root)
-        assert result is True or result is None  # Depending on implementation
+        assert result  # Returns truthy (the resolved path string)
 
     def test_valid_path_direct_child(self, project_root):
         """Test direct child path is valid."""
         valid_path = project_root / "file.pdf"
 
         result = validate_path_jail(valid_path, project_root)
-        assert result is True or result is None
+        assert result  # Returns truthy
 
     def test_valid_path_deep_nesting(self, project_root):
         """Test deeply nested path is valid."""
         valid_path = project_root / "2506_SMITH-EXTENSION" / "TECHNICAL" / "Surveys" / "topo.pdf"
 
         result = validate_path_jail(valid_path, project_root)
-        assert result is True or result is None
+        assert result  # Returns truthy
 
     def test_root_path_itself_allowed(self, project_root):
         """Test project root path itself is valid."""
         result = validate_path_jail(project_root, project_root)
-        assert result is True or result is None
+        assert result  # Returns truthy
 
 
 # ============================================================================
@@ -156,21 +156,21 @@ class TestEdgeCases:
         path_with_spaces = project_root / "2506_SMITH-EXTENSION" / "Folder With Spaces" / "file.pdf"
 
         result = validate_path_jail(path_with_spaces, project_root)
-        assert result is True or result is None
+        assert result  # Returns resolved path string
 
     def test_path_with_special_chars(self, project_root):
         """Test path with special characters is handled correctly."""
         path_with_special = project_root / "2506_SMITH-EXTENSION" / "Test & Co" / "file.pdf"
 
         result = validate_path_jail(path_with_special, project_root)
-        assert result is True or result is None
+        assert result  # Returns resolved path string
 
     def test_unicode_path(self, project_root):
         """Test path with unicode characters is handled correctly."""
         unicode_path = project_root / "2506_SMITH-EXTENSION" / "Café Plans" / "file.pdf"
 
         result = validate_path_jail(unicode_path, project_root)
-        assert result is True or result is None
+        assert result  # Returns resolved path string
 
     def test_path_with_double_slashes(self, project_root):
         """Test path with double slashes is normalized."""
@@ -180,7 +180,7 @@ class TestEdgeCases:
         path = Path(path_str)
 
         result = validate_path_jail(path, project_root)
-        assert result is True or result is None
+        assert result  # Returns resolved path string
 
     def test_case_sensitivity(self, project_root):
         """Test path case handling."""
@@ -189,7 +189,7 @@ class TestEdgeCases:
 
         # Should not raise PathJailViolation regardless of case
         result = validate_path_jail(path, project_root)
-        assert result is True or result is None
+        assert result  # Returns resolved path string
 
     def test_trailing_slash(self, project_root):
         """Test path with trailing slash is handled."""
@@ -197,7 +197,7 @@ class TestEdgeCases:
         path = Path(path_str)
 
         result = validate_path_jail(path, project_root)
-        assert result is True or result is None
+        assert result  # Returns resolved path string
 
 
 # ============================================================================
