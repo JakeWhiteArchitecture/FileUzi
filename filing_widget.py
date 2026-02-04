@@ -32,15 +32,16 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QRadioButton, QButtonGroup,
     QFrame, QMessageBox, QComboBox, QCheckBox,
-    QScrollArea, QSizePolicy, QCompleter, QMenu
+    QScrollArea, QSizePolicy, QCompleter, QMenu, QDialog
 )
 from PyQt6.QtCore import Qt, QStringListModel
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPixmap
 
 # Import configuration from fileuzi package
 from fileuzi.config import (
     PROJECTS_ROOT,
     MIN_ATTACHMENT_SIZE,
+    MIN_EMBEDDED_IMAGE_SIZE,
     COLORS,
     SECONDARY_FILING_WIDTH,
     MAX_CHIPS,
@@ -104,6 +105,7 @@ from fileuzi.services import (
 from fileuzi.ui import (
     FlowLayout,
     ClickableWordLabel,
+    FilingChip,
     AttachmentWidget,
     DropZone,
     SuccessDialog,
