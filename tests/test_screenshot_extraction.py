@@ -43,8 +43,9 @@ class TestEmbeddedImageExtraction:
         embedded = extract_embedded_images(msg, min_size=config['MIN_EMBEDDED_IMAGE_SIZE'])
 
         # Only images >= 20KB should be included
-        for cid, data in embedded:
-            assert len(data) >= config['MIN_EMBEDDED_IMAGE_SIZE']
+        # extract_embedded_images returns list of dicts with 'size' key
+        for img in embedded:
+            assert img['size'] >= config['MIN_EMBEDDED_IMAGE_SIZE']
 
     def test_no_embedded_images_returns_empty(self, sample_eml_inbound):
         """Test email without embedded images returns empty list."""

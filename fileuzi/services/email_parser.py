@@ -126,12 +126,14 @@ def parse_body_with_signoff(body_text):
     sign_off_type = None
 
     for i, line in enumerate(lines):
-        line_lower = line.strip().lower()
+        line_stripped = line.strip()
+        line_lower = line_stripped.lower()
 
         # Check for sign-off patterns
         for pattern in SIGN_OFF_PATTERNS:
             if line_lower.startswith(pattern) or line_lower == pattern:
-                sign_off_type = pattern.title()
+                # Capture the actual text as it appeared in the email (case-preserving)
+                sign_off_type = line_stripped[:len(pattern)]
                 # Return everything before this line
                 body_clean = '\n'.join(body_lines).strip()
                 return (body_clean, sign_off_type)

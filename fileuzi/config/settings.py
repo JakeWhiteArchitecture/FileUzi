@@ -100,6 +100,7 @@ SIGN_OFF_PATTERNS = [
     'warm regards',
     'with thanks',
     'many thanks',
+    'cheers',
     'regards',
     'thanks',
 ]

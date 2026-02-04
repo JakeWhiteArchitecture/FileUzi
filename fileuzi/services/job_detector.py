@@ -40,16 +40,25 @@ def scan_projects_folder(projects_root):
 
 def parse_folder_name(folder_name):
     """
-    Parse folder name in format: {job_number} - {project_name}
+    Parse folder name in format: {job_number} - {project_name} or {job_number}_{project_name}
 
     Returns:
         tuple: (job_number, project_name) or (None, None) if invalid
     """
+    # Try dash format first: "2506 - SMITH EXTENSION"
     match = re.match(r'^(\d{4,5})\s*[-–]\s*(.+)$', folder_name)
     if match:
         job_number = match.group(1)
         project_name = match.group(2).strip()
         return (job_number, project_name)
+
+    # Try underscore format: "2506_SMITH-EXTENSION"
+    match = re.match(r'^(\d{4,5})_(.+)$', folder_name)
+    if match:
+        job_number = match.group(1)
+        project_name = match.group(2).strip()
+        return (job_number, project_name)
+
     return (None, None)
 
 
@@ -75,10 +84,16 @@ def extract_job_number_from_filename(filename, project_mapping=None):
             if re.match(pattern, filename, re.IGNORECASE):
                 return local_no
 
-    # Then check standard numeric pattern
+    # Then check standard numeric pattern (underscore format)
     match = re.match(r'^(\d{4,5})_', filename)
     if match:
         return match.group(1)
+
+    # Check old format: "2506 - 04A - PROPOSED PLANS.pdf"
+    match = re.match(r'^(\d{4,5})\s*[-–]\s*', filename)
+    if match:
+        return match.group(1)
+
     return None
 
 
@@ -87,7 +102,7 @@ def find_job_number_from_path(file_path, project_mapping=None):
     Find job number from file path - checks filename first, then folder structure.
 
     Returns:
-        tuple: (job_number, project_name, project_folder_path) or (None, None, None)
+        str: job_number or None if not found
     """
     path = Path(file_path)
 
@@ -95,16 +110,16 @@ def find_job_number_from_path(file_path, project_mapping=None):
     filename = path.name
     job_number = extract_job_number_from_filename(filename, project_mapping)
     if job_number:
-        return (job_number, None, None)
+        return job_number
 
     # Walk up the directory tree looking for folder pattern
     for parent in path.parents:
         folder_name = parent.name
         job_number, project_name = parse_folder_name(folder_name)
         if job_number:
-            return (job_number, project_name, str(parent))
+            return job_number
 
-    return (None, None, None)
+    return None
 
 
 def is_embedded_image(filename):
@@ -149,8 +164,13 @@ def detect_project_from_subject(subject, known_projects, project_mapping=None):
     if not subject:
         return None
 
-    # Strip RE:/FW:/Fwd: prefixes
-    cleaned = re.sub(r'^(RE|FW|Fwd):\s*', '', subject, flags=re.IGNORECASE).strip()
+    # Strip ALL RE:/FW:/Fwd: prefixes (handles multiple like "RE: RE: RE:")
+    cleaned = subject
+    while True:
+        new_cleaned = re.sub(r'^(RE|FW|Fwd):\s*', '', cleaned, count=1, flags=re.IGNORECASE).strip()
+        if new_cleaned == cleaned:
+            break
+        cleaned = new_cleaned
 
     # Step 1: Check project mapping for client references anywhere in subject
     if project_mapping:

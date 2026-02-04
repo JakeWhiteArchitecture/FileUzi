@@ -198,8 +198,9 @@ class TestPdfToggleEdgeCases:
         # Create email with invalid image data
         from tests.conftest import _create_eml_content
 
-        # Fake "image" that isn't valid
-        bad_image = b"not a real image" * 2000  # Make it big enough to pass size filter
+        # Create minimal PNG header so MIMEImage can detect type, but with invalid content
+        png_header = b'\x89PNG\r\n\x1a\n'
+        bad_image = png_header + b'\x00' * 30000  # Invalid PNG but detectable
 
         content = _create_eml_content(
             from_addr='jw@jakewhitearchitecture.com',

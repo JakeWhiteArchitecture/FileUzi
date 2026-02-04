@@ -10,6 +10,22 @@ from difflib import SequenceMatcher
 from fileuzi.config import FILING_RULES_FILENAME, PROJECT_MAPPING_FILENAME
 from fileuzi.utils import get_tools_folder_path
 
+# Import PDF extraction functions at module level for mockability
+try:
+    from .pdf_generator import (
+        extract_pdf_metadata_title,
+        extract_pdf_first_content,
+        is_valid_pdf_title,
+    )
+except ImportError:
+    # Graceful fallback if pdf_generator not available
+    def extract_pdf_metadata_title(pdf_data):
+        return None
+    def extract_pdf_first_content(pdf_data, char_limit=40):
+        return None
+    def is_valid_pdf_title(title, filename):
+        return False
+
 
 def get_filing_rules_path(projects_root):
     """Get the path to the filing rules CSV in the tools folder."""
@@ -41,8 +57,11 @@ def load_project_mapping(projects_root):
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                custom_no = row.get('Custom Project No:', '').strip()
-                local_no = row.get('Local Project No:', '').strip()
+                # Support both header formats
+                custom_no = (row.get('Custom Project No:', '') or
+                             row.get('client_reference', '')).strip()
+                local_no = (row.get('Local Project No:', '') or
+                            row.get('jwa_job_number', '')).strip()
                 if custom_no and local_no:
                     # Store both original and uppercase for case-insensitive matching
                     mapping[custom_no] = local_no
@@ -97,20 +116,28 @@ def load_filing_rules(projects_root):
             reader = csv.DictReader(f)
             for row in reader:
                 # Skip paused rules
-                if row.get('Pause', '').strip().lower() == 'yes':
+                pause_val = row.get('Pause', '') or row.get('pause', '')
+                if pause_val.strip().lower() == 'yes':
                     continue
 
-                # Parse keywords and descriptors (comma-separated)
-                keywords = [k.strip().lower() for k in row.get('Keywords', '').split(',') if k.strip()]
-                descriptors = [d.strip().lower() for d in row.get('Interchangeable_Descriptors', '').split(',') if d.strip()]
+                # Parse keywords (support both | and , separators, case-insensitive headers)
+                keywords_raw = row.get('Keywords', '') or row.get('keywords', '')
+                # Split by both | and , to handle different formats
+                keywords_split = re.split(r'[|,]', keywords_raw)
+                keywords = [k.strip().lower() for k in keywords_split if k.strip()]
+
+                # Parse descriptors (support both | and , separators, case-insensitive headers)
+                descriptors_raw = row.get('Interchangeable_Descriptors', '') or row.get('descriptors', '')
+                descriptors_split = re.split(r'[|,]', descriptors_raw)
+                descriptors = [d.strip().lower() for d in descriptors_split if d.strip()]
 
                 rules.append({
                     'keywords': keywords,
                     'descriptors': descriptors,
-                    'folder_location': row.get('Folder_Location', '').strip(),
-                    'folder_type': row.get('Folder_Type', '').strip(),
-                    'subfolder_structure': row.get('Subfolder_Structure', '').strip(),
-                    'colour': row.get('Colour', '#64748b').strip(),
+                    'folder_location': (row.get('Folder_Location', '') or row.get('folder_location', '')).strip(),
+                    'folder_type': (row.get('Folder_Type', '') or row.get('folder_type', '')).strip(),
+                    'subfolder_structure': (row.get('Subfolder_Structure', '') or row.get('subfolder_structure', '')).strip(),
+                    'colour': (row.get('Colour', '') or row.get('colour', '') or '#64748b').strip(),
                 })
     except Exception as e:
         print(f"Error loading filing rules: {e}")
@@ -250,7 +277,6 @@ def match_filing_rules_cascade(filename, rules, attachment_data=None, job_number
     # Step 2: Try PDF metadata title (if this is a PDF with data)
     if attachment_data and filename.lower().endswith('.pdf'):
         try:
-            from .pdf_generator import extract_pdf_metadata_title, is_valid_pdf_title
             title = extract_pdf_metadata_title(attachment_data)
             if title and is_valid_pdf_title(title, filename):
                 title_matches = match_filing_rules(title, rules)
@@ -262,7 +288,6 @@ def match_filing_rules_cascade(filename, rules, attachment_data=None, job_number
     # Step 3: Try PDF first content line (if this is a PDF with data)
     if attachment_data and filename.lower().endswith('.pdf'):
         try:
-            from .pdf_generator import extract_pdf_first_content
             first_content = extract_pdf_first_content(attachment_data)
             if first_content:
                 content_matches = match_filing_rules(first_content, rules)

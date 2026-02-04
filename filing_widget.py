@@ -1501,7 +1501,7 @@ class FilingWidget(QMainWindow):
         # Try to detect job number from file path FIRST, before processing files
         # This ensures drawing detection uses the correct job number
         if files:
-            detected_job, detected_name, _ = find_job_number_from_path(files[0], self.project_mapping)
+            detected_job = find_job_number_from_path(files[0], self.project_mapping)
             if detected_job:
                 self.try_select_job(detected_job)
             elif self.last_job_number and not self.job_number:
@@ -1577,7 +1577,7 @@ class FilingWidget(QMainWindow):
 
     def auto_select_project_from_path(self, file_path):
         """Auto-select project if job number is detected in file path."""
-        detected_job, detected_name, _ = find_job_number_from_path(file_path, self.project_mapping)
+        detected_job = find_job_number_from_path(file_path, self.project_mapping)
 
         if detected_job:
             self.try_select_job(detected_job)

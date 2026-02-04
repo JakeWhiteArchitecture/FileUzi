@@ -81,8 +81,8 @@ def project_root(tmp_path):
     (proj_2407 / "Current Drawings").mkdir()
     (proj_2407 / "TECHNICAL").mkdir()
 
-    # Tools folder
-    tools = root / "_FILING-WIDGET-TOOLS"
+    # Tools folder (matches FILING_WIDGET_TOOLS_FOLDER in config)
+    tools = root / "*FILING-WIDGET-TOOLS*"
     tools.mkdir()
 
     return root
@@ -91,7 +91,7 @@ def project_root(tmp_path):
 @pytest.fixture
 def tools_folder(project_root):
     """Return the tools folder path."""
-    return project_root / "_FILING-WIDGET-TOOLS"
+    return project_root / "*FILING-WIDGET-TOOLS*"
 
 
 # ============================================================================

@@ -175,30 +175,31 @@ def compare_drawing_revisions(parsed_a, parsed_b):
     Compare two parsed drawing revisions.
 
     Returns:
-        -1 if a < b (a is older)
+        positive if b > a (b is newer)
          0 if a == b (same revision)
-         1 if a > b (a is newer)
+        negative if a > b (a is newer)
     """
     if parsed_a['format'] != parsed_b['format']:
+        # New format is always considered newer than old format
         if parsed_a['format'] == 'old':
-            return -1
+            return 1   # B (new format) is newer
         else:
-            return 1
+            return -1  # A (new format) is newer
 
     if parsed_a['format'] == 'new':
         stage_a = STAGE_HIERARCHY.index(parsed_a['stage'])
         stage_b = STAGE_HIERARCHY.index(parsed_b['stage'])
 
         if stage_a != stage_b:
-            return -1 if stage_a < stage_b else 1
+            return 1 if stage_a < stage_b else -1
 
         rev_a = parsed_a['revision']
         rev_b = parsed_b['revision']
 
         if rev_a < rev_b:
-            return -1
+            return 1   # B has higher revision, B is newer
         elif rev_a > rev_b:
-            return 1
+            return -1  # A has higher revision, A is newer
         else:
             return 0
 
@@ -210,9 +211,9 @@ def compare_drawing_revisions(parsed_a, parsed_b):
         val_b = -1 if letter_b == '' else ord(letter_b) - ord('A')
 
         if val_a < val_b:
-            return -1
+            return 1   # B has higher letter, B is newer
         elif val_a > val_b:
-            return 1
+            return -1  # A has higher letter, A is newer
         else:
             return 0
 
@@ -275,9 +276,11 @@ def supersede_drawings(current_drawings_folder, new_file_path, projects_root, ci
     to_supersede = []
     for match_path, match_parsed in matches:
         comparison = compare_drawing_revisions(match_parsed, new_parsed)
-        if comparison < 0:
+        if comparison > 0:
+            # Positive means new_parsed is newer, so match is older → supersede it
             to_supersede.append((match_path, match_parsed))
-        elif comparison > 0:
+        elif comparison < 0:
+            # Negative means match_parsed is newer → new file is older (anomaly)
             logger.warning(
                 f"SUPERSEDE ANOMALY | New file {new_file.name} appears OLDER than existing {match_path.name}"
             )
