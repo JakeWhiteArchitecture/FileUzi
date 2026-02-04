@@ -8,8 +8,8 @@ import re
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFileDialog
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QDesktopServices, QUrl
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QDesktopServices
 
 from fileuzi.config import COLORS
 from fileuzi.database import get_database_path
