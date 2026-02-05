@@ -248,15 +248,18 @@ class DuplicateEmailDialog(QDialog):
 
 
 class FileDuplicateDialog(QDialog):
-    """Dialog shown when a duplicate file is detected in the project."""
+    """Dialog shown when a duplicate file is detected at the same location."""
 
-    def __init__(self, parent, filename, duplicate_locations, projects_root):
+    def __init__(self, parent, filename, duplicate_locations, projects_root,
+                 destination_folder=None):
         super().__init__(parent)
         self.filename = filename
         self.duplicate_locations = duplicate_locations
         self.projects_root = projects_root
+        self.destination_folder = destination_folder
         self.result_action = None
         self.new_filename = None
+        self.replace_target = None  # Path of file to replace
         self.setWindowTitle("Duplicate File Detected")
         self.setModal(True)
         self.setup_ui()
@@ -267,22 +270,38 @@ class FileDuplicateDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
 
         # Warning message
-        warning_label = QLabel(f"File '{self.filename}' already exists in this project:")
+        warning_label = QLabel(f"File '{self.filename}' already exists:")
         warning_label.setStyleSheet(f"color: {COLORS['warning']}; font-size: 14px; font-weight: bold;")
         warning_label.setWordWrap(True)
         layout.addWidget(warning_label)
 
-        # List of duplicate locations
-        locations_text = ""
-        for loc in self.duplicate_locations[:5]:  # Show max 5 locations
-            locations_text += f"• {loc}\n"
-        if len(self.duplicate_locations) > 5:
-            locations_text += f"... and {len(self.duplicate_locations) - 5} more"
+        # Show file details for first duplicate
+        first_dup = self.duplicate_locations[0]
+        try:
+            from pathlib import Path
+            dup_path = Path(first_dup)
+            if dup_path.exists():
+                stat = dup_path.stat()
+                size_mb = stat.st_size / (1024 * 1024)
+                from datetime import datetime
+                modified = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
+                details_text = (
+                    f"  Location: {first_dup}\n"
+                    f"  Size: {size_mb:.1f} MB\n"
+                    f"  Modified: {modified}"
+                )
+            else:
+                details_text = f"  Location: {first_dup}"
+        except Exception:
+            details_text = f"  Location: {first_dup}"
 
-        locations_label = QLabel(locations_text.strip())
-        locations_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
-        locations_label.setWordWrap(True)
-        layout.addWidget(locations_label)
+        if len(self.duplicate_locations) > 1:
+            details_text += f"\n\n... and {len(self.duplicate_locations) - 1} more location(s)"
+
+        details_label = QLabel(details_text)
+        details_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+        details_label.setWordWrap(True)
+        layout.addWidget(details_label)
 
         # Options
         btn_skip = QPushButton("a) Skip - don't copy this file")
@@ -292,13 +311,19 @@ class FileDuplicateDialog(QDialog):
 
         btn_rename = QPushButton("b) Rename - add _v2 suffix")
         btn_rename.setStyleSheet(self._button_style())
+        btn_rename.setDefault(True)
         btn_rename.clicked.connect(self.on_rename)
         layout.addWidget(btn_rename)
 
-        btn_overwrite = QPushButton("c) Overwrite - replace existing file(s)")
-        btn_overwrite.setStyleSheet(self._button_style())
-        btn_overwrite.clicked.connect(self.on_overwrite)
-        layout.addWidget(btn_overwrite)
+        # Determine Superseded folder name for display
+        from pathlib import Path
+        dup_parent = Path(first_dup).parent.name
+        btn_replace = QPushButton(
+            f"c) Replace (moves old to {dup_parent}/Superseded)"
+        )
+        btn_replace.setStyleSheet(self._button_style())
+        btn_replace.clicked.connect(self.on_replace)
+        layout.addWidget(btn_replace)
 
         self.setMinimumWidth(500)
 
@@ -321,7 +346,6 @@ class FileDuplicateDialog(QDialog):
 
     def on_skip(self):
         self.result_action = 'skip'
-        # Log the decision
         logger = get_file_ops_logger(self.projects_root)
         logger.info(f"DUPLICATE SKIP | {self.filename} | Existing at: {self.duplicate_locations[0]}")
         self.accept()
@@ -330,7 +354,6 @@ class FileDuplicateDialog(QDialog):
         self.result_action = 'rename'
         # Generate new filename with _v2 suffix (or increment if _v2 exists)
         base, ext = os.path.splitext(self.filename)
-        # Check for existing version suffix
         version_match = re.search(r'_v(\d+)$', base)
         if version_match:
             current_version = int(version_match.group(1))
@@ -338,14 +361,150 @@ class FileDuplicateDialog(QDialog):
             self.new_filename = f"{base}_v{current_version + 1}{ext}"
         else:
             self.new_filename = f"{base}_v2{ext}"
-        # Log the decision
         logger = get_file_ops_logger(self.projects_root)
         logger.info(f"DUPLICATE RENAME | {self.filename} -> {self.new_filename}")
         self.accept()
 
-    def on_overwrite(self):
-        self.result_action = 'overwrite'
-        # Log the decision
+    def on_replace(self):
+        self.result_action = 'replace'
+        self.replace_target = self.duplicate_locations[0]
         logger = get_file_ops_logger(self.projects_root)
-        logger.info(f"DUPLICATE OVERWRITE | {self.filename} | Replacing: {self.duplicate_locations[0]}")
+        logger.info(
+            f"DUPLICATE REPLACE | {self.filename} | "
+            f"Superseding: {self.duplicate_locations[0]}"
+        )
+        self.accept()
+
+
+class DifferentLocationDuplicateDialog(QDialog):
+    """Dialog shown when a duplicate exists at a different location than the filing target."""
+
+    def __init__(self, parent, filename, existing_path, new_destination,
+                 projects_root):
+        super().__init__(parent)
+        self.filename = filename
+        self.existing_path = existing_path
+        self.new_destination = new_destination
+        self.projects_root = projects_root
+        self.result_action = None
+        self.replace_target = None
+        self.setWindowTitle("File Exists at Different Location")
+        self.setModal(True)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(16)
+        layout.setContentsMargins(24, 24, 24, 24)
+
+        # Warning message
+        warning_label = QLabel(f"File '{self.filename}' already exists at a different location:")
+        warning_label.setStyleSheet(f"color: {COLORS['warning']}; font-size: 14px; font-weight: bold;")
+        warning_label.setWordWrap(True)
+        layout.addWidget(warning_label)
+
+        # Show existing file details
+        from pathlib import Path
+        existing = Path(self.existing_path)
+        try:
+            if existing.exists():
+                stat = existing.stat()
+                size_mb = stat.st_size / (1024 * 1024)
+                from datetime import datetime
+                modified = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
+                existing_text = (
+                    f"  Location: {self.existing_path}\n"
+                    f"  Size: {size_mb:.1f} MB\n"
+                    f"  Modified: {modified}"
+                )
+            else:
+                existing_text = f"  Location: {self.existing_path}"
+        except Exception:
+            existing_text = f"  Location: {self.existing_path}"
+
+        existing_label = QLabel(existing_text)
+        existing_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+        existing_label.setWordWrap(True)
+        layout.addWidget(existing_label)
+
+        # Show target destination
+        dest_label = QLabel(f"\nYou are filing to:\n  {self.new_destination}")
+        dest_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+        dest_label.setWordWrap(True)
+        layout.addWidget(dest_label)
+
+        info_label = QLabel("These are different locations. Choose action:")
+        info_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px;")
+        layout.addWidget(info_label)
+
+        # Options
+        existing_parent_name = existing.parent.name
+
+        btn_skip = QPushButton("a) Skip - don't file anywhere")
+        btn_skip.setStyleSheet(self._button_style())
+        btn_skip.clicked.connect(self.on_skip)
+        layout.addWidget(btn_skip)
+
+        dest_name = Path(self.new_destination).name
+        btn_file_new = QPushButton(
+            f"b) File to {dest_name} - keep both files in different locations"
+        )
+        btn_file_new.setStyleSheet(self._button_style())
+        btn_file_new.setDefault(True)
+        btn_file_new.clicked.connect(self.on_file_new_location)
+        layout.addWidget(btn_file_new)
+
+        btn_replace = QPushButton(
+            f"c) Replace {existing_parent_name} version - "
+            f"moves old to {existing_parent_name}/Superseded, files new to {dest_name}"
+        )
+        btn_replace.setStyleSheet(self._button_style())
+        btn_replace.clicked.connect(self.on_replace_existing)
+        layout.addWidget(btn_replace)
+
+        self.setMinimumWidth(500)
+
+    def _button_style(self):
+        return f"""
+            QPushButton {{
+                background-color: {COLORS['bg']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 6px;
+                padding: 10px 16px;
+                text-align: left;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']}11;
+                border-color: {COLORS['primary']};
+            }}
+        """
+
+    def on_skip(self):
+        self.result_action = 'skip'
+        logger = get_file_ops_logger(self.projects_root)
+        logger.info(
+            f"DUPLICATE SKIP | {self.filename} | "
+            f"Existing at: {self.existing_path}"
+        )
+        self.accept()
+
+    def on_file_new_location(self):
+        self.result_action = 'proceed'
+        logger = get_file_ops_logger(self.projects_root)
+        logger.info(
+            f"DUPLICATE KEEP BOTH | {self.filename} | "
+            f"Existing: {self.existing_path}, New: {self.new_destination}"
+        )
+        self.accept()
+
+    def on_replace_existing(self):
+        self.result_action = 'replace'
+        self.replace_target = self.existing_path
+        logger = get_file_ops_logger(self.projects_root)
+        logger.info(
+            f"DUPLICATE REPLACE DIFFERENT | {self.filename} | "
+            f"Superseding: {self.existing_path}, Filing to: {self.new_destination}"
+        )
         self.accept()

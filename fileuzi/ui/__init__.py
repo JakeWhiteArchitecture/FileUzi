@@ -13,6 +13,7 @@ from .dialogs import (
     DatabaseMissingDialog,
     DuplicateEmailDialog,
     FileDuplicateDialog,
+    DifferentLocationDuplicateDialog,
 )
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     'DatabaseMissingDialog',
     'DuplicateEmailDialog',
     'FileDuplicateDialog',
+    'DifferentLocationDuplicateDialog',
 ]

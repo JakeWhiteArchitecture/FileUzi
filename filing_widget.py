@@ -112,7 +112,10 @@ from fileuzi.ui import (
     DatabaseMissingDialog,
     DuplicateEmailDialog,
     FileDuplicateDialog,
+    DifferentLocationDuplicateDialog,
 )
+
+from fileuzi.services.filing_operations import replace_with_supersede
 
 
 class FilingWidget(QMainWindow):
@@ -1844,10 +1847,33 @@ class FilingWidget(QMainWindow):
                         filename = att['filename']
 
                         # Check for duplicates in project
-                        action, final_filename = self._check_file_duplicate(project_path, filename)
+                        action, final_filename, replace_target = self._check_file_duplicate(
+                            project_path, filename, dest_folder
+                        )
 
                         if action == 'skip':
                             continue  # Skip this file
+
+                        if action == 'replace' and replace_target:
+                            try:
+                                superseded = replace_with_supersede(
+                                    old_path=replace_target,
+                                    project_root=self.projects_root,
+                                    new_file_content=att['data'],
+                                )
+                                if superseded:
+                                    supersede_messages.append(
+                                        f"Old version backed up to: {superseded}"
+                                    )
+                                copied_count += 1
+                                continue
+                            except (ValueError, OSError) as e:
+                                QMessageBox.warning(
+                                    self, "Replace Failed",
+                                    f"Replace operation failed: {e}\n"
+                                    f"Original file has been preserved."
+                                )
+                                continue
 
                         # Primary filing to IMPORTS-EXPORTS
                         dst = dest_folder / final_filename
@@ -1901,9 +1927,29 @@ class FilingWidget(QMainWindow):
                     )
                     if pdf_data and pdf_filename:
                         # Check for duplicates and get final filename
-                        action, final_pdf_filename = self._check_file_duplicate(project_path, pdf_filename)
+                        action, final_pdf_filename, replace_target = self._check_file_duplicate(
+                            project_path, pdf_filename, dest_folder
+                        )
 
-                        if action != 'skip':
+                        if action == 'replace' and replace_target:
+                            try:
+                                superseded = replace_with_supersede(
+                                    old_path=replace_target,
+                                    project_root=self.projects_root,
+                                    new_file_content=pdf_data,
+                                )
+                                if superseded:
+                                    supersede_messages.append(
+                                        f"Old version backed up to: {superseded}"
+                                    )
+                                copied_count += 1
+                            except (ValueError, OSError) as e:
+                                QMessageBox.warning(
+                                    self, "Replace Failed",
+                                    f"Replace operation failed: {e}\n"
+                                    f"Original file has been preserved."
+                                )
+                        elif action != 'skip':
                             # Primary filing to IMPORTS-EXPORTS
                             pdf_dst = dest_folder / final_pdf_filename
                             if safe_write_attachment(pdf_dst, pdf_data, self.projects_root, final_pdf_filename):
@@ -1930,10 +1976,33 @@ class FilingWidget(QMainWindow):
                         filename = src.name
 
                         # Check for duplicates in project
-                        action, final_filename = self._check_file_duplicate(project_path, filename)
+                        action, final_filename, replace_target = self._check_file_duplicate(
+                            project_path, filename, dest_folder
+                        )
 
                         if action == 'skip':
                             continue  # Skip this file
+
+                        if action == 'replace' and replace_target:
+                            try:
+                                superseded = replace_with_supersede(
+                                    old_path=replace_target,
+                                    project_root=self.projects_root,
+                                    new_file_source=src,
+                                )
+                                if superseded:
+                                    supersede_messages.append(
+                                        f"Old version backed up to: {superseded}"
+                                    )
+                                copied_count += 1
+                                continue
+                            except (ValueError, OSError) as e:
+                                QMessageBox.warning(
+                                    self, "Replace Failed",
+                                    f"Replace operation failed: {e}\n"
+                                    f"Original file has been preserved."
+                                )
+                                continue
 
                         dst = dest_folder / final_filename
 
@@ -2231,38 +2300,73 @@ class FilingWidget(QMainWindow):
             # Don't fail the filing if database write fails - just log
             print(f"Warning: Failed to write file filing to database: {e}")
 
-    def _check_file_duplicate(self, project_path, filename):
+    def _check_file_duplicate(self, project_path, filename, destination_folder=None):
         """
         Check if a file with the same name exists anywhere in the project.
+
+        Detects whether duplicates are in the same location or a different one
+        and shows the appropriate dialog.
 
         Args:
             project_path: Path to the project folder
             filename: Name of the file to check
+            destination_folder: Where the file is being filed to
 
         Returns:
-            tuple: (action, new_filename) where action is 'proceed', 'skip', 'rename', or 'overwrite'
+            tuple: (action, new_filename, replace_target) where:
+                   action is 'proceed', 'skip', 'rename', or 'replace'
                    new_filename is only set if action is 'rename'
+                   replace_target is the Path to supersede if action is 'replace'
         """
         duplicates = scan_for_file_duplicates(project_path, filename)
 
         if not duplicates:
-            return ('proceed', filename)
+            return ('proceed', filename, None)
 
-        # Show dialog
-        dialog = FileDuplicateDialog(self, filename, duplicates, self.projects_root)
+        # Determine if any duplicates are at a different location than destination
+        if destination_folder:
+            dest_folder = Path(destination_folder)
+            same_location = [d for d in duplicates if Path(d).parent == dest_folder]
+            diff_location = [d for d in duplicates if Path(d).parent != dest_folder]
+
+            # If all duplicates are at different locations, show different-location dialog
+            if diff_location and not same_location:
+                dialog = DifferentLocationDuplicateDialog(
+                    self, filename, diff_location[0],
+                    destination_folder, self.projects_root
+                )
+                result = dialog.exec()
+
+                if result != QDialog.DialogCode.Accepted:
+                    return ('skip', filename, None)
+
+                if dialog.result_action == 'skip':
+                    return ('skip', filename, None)
+                elif dialog.result_action == 'proceed':
+                    return ('proceed', filename, None)
+                elif dialog.result_action == 'replace':
+                    return ('replace', filename, dialog.replace_target)
+
+                return ('proceed', filename, None)
+
+        # Same-location or mixed: show standard dialog
+        dialog = FileDuplicateDialog(
+            self, filename, duplicates, self.projects_root,
+            destination_folder=destination_folder
+        )
         result = dialog.exec()
 
         if result != QDialog.DialogCode.Accepted:
-            return ('skip', filename)
+            return ('skip', filename, None)
 
         if dialog.result_action == 'skip':
-            return ('skip', filename)
+            return ('skip', filename, None)
         elif dialog.result_action == 'rename':
-            return ('rename', dialog.new_filename)
-        elif dialog.result_action == 'overwrite':
-            return ('overwrite', filename)
+            return ('rename', dialog.new_filename, None)
+        elif dialog.result_action == 'replace':
+            return ('replace', filename, dialog.replace_target)
 
-        return ('proceed', filename)
+        return ('proceed', filename, None)
 
     def _resolve_secondary_path(self, project_path, rule, description=None):
         """
