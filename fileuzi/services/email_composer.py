@@ -881,10 +881,14 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
     try:
         client_str = str(client_path)
         if client_str.startswith("flatpak::"):
-            # Flatpak app — launch via 'flatpak run' with -compose
+            # Flatpak app — grant $HOME access so sandbox can read attachments
             app_id = client_str.split("::", 1)[1]
-            cmd = ["flatpak", "run", app_id, "-compose", compose_string]
-            logger.info("  Launching via flatpak run: %s", app_id)
+            cmd = [
+                "flatpak", "run", "--filesystem=home",
+                app_id, "-compose", compose_string,
+            ]
+            logger.info("  Launching via flatpak run --filesystem=home: %s",
+                         app_id)
         else:
             cmd = [client_str, "-compose", compose_string]
             logger.info("  Launching directly: %s -compose ...", client_str)

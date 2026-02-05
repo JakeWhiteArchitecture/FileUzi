@@ -1033,7 +1033,7 @@ class TestLaunchEmailCompose:
 
     @patch('fileuzi.services.email_composer.subprocess.Popen')
     def test_flatpak_launch(self, mock_popen, tmp_path):
-        """Flatpak clients launched via 'flatpak run'."""
+        """Flatpak clients launched with --filesystem=home for sandbox access."""
         att = tmp_path / "file.pdf"
         att.write_bytes(b"content")
 
@@ -1046,9 +1046,10 @@ class TestLaunchEmailCompose:
         args = mock_popen.call_args[0][0]
         assert args[0] == "flatpak"
         assert args[1] == "run"
-        assert args[2] == "eu.betterbird.Betterbird"
-        assert args[3] == "-compose"
-        compose = args[4]
+        assert args[2] == "--filesystem=home"
+        assert args[3] == "eu.betterbird.Betterbird"
+        assert args[4] == "-compose"
+        compose = args[5]
         assert "subject='Subject'" in compose
         assert "file://" in compose
         assert "file.pdf" in compose
