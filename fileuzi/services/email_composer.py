@@ -872,18 +872,15 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
     try:
         client_str = str(client_path)
         if client_str.startswith("flatpak::"):
-            # Flatpak app — use --file-forwarding so the document portal
-            # exports attachment files into the sandbox.  The '@@' markers
-            # around the compose string tell Flatpak to scan it for
-            # file:// paths, export them, and rewrite the URIs.
+            # Flatpak app — grant temporary $HOME access so the
+            # sandboxed app can read attachment files directly.
             app_id = client_str.split("::", 1)[1]
             cmd = [
-                "flatpak", "run", "--file-forwarding",
-                app_id, "-compose",
-                "@@", compose_string, "@@",
+                "flatpak", "run", "--filesystem=home",
+                app_id, "-compose", compose_string,
             ]
             logger.info(
-                "  Launching via flatpak run --file-forwarding: %s", app_id)
+                "  Launching via flatpak run --filesystem=home: %s", app_id)
         else:
             cmd = [client_str, "-compose", compose_string]
             logger.info("  Launching directly: %s -compose ...", client_str)
