@@ -841,7 +841,16 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
     # Betterbird/Thunderbird expects literal spaces in paths)
     attachments = []
     for path in attachment_paths:
-        abs_path = str(Path(path).resolve())
+        p = Path(path).resolve()
+        abs_path = str(p)
+        # Guard against double leading slashes (would create file:////)
+        if abs_path.startswith('//'):
+            abs_path = abs_path[1:]
+        # Verify file exists before adding
+        if not p.is_file():
+            logger.warning("  SKIPPING missing attachment: %s", abs_path)
+            continue
+        logger.debug("  attachment URI: file://%s (exists=True)", abs_path)
         attachments.append(f"file://{abs_path}")
     attachment_string = ','.join(attachments) if attachments else ''
 
