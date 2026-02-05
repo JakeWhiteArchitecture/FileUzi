@@ -881,10 +881,21 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
     try:
         client_str = str(client_path)
         if client_str.startswith("flatpak::"):
-            # Flatpak app — grant $HOME access so sandbox can read attachments
+            # Flatpak app — grant access to specific directories containing
+            # attachments (not all of $HOME, which breaks profile detection)
             app_id = client_str.split("::", 1)[1]
-            cmd = [
-                "flatpak", "run", "--filesystem=home",
+
+            # Build --filesystem args for each attachment's parent directory
+            fs_args = []
+            if attachment_paths:
+                parent_dirs = set()
+                for path in attachment_paths:
+                    parent_dirs.add(str(Path(path).resolve().parent))
+                for parent in parent_dirs:
+                    fs_args.append(f"--filesystem={parent}")
+                    logger.debug("  Granting Flatpak access to: %s", parent)
+
+            cmd = ["flatpak", "run"] + fs_args + [
                 app_id, "-compose", compose_string,
             ]
             logger.info("  Launching via flatpak run --filesystem=home: %s",
