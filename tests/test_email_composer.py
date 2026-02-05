@@ -207,8 +207,11 @@ class TestDetectorPathSearch:
         assert result['method'] == 'path'
         assert result['path'] == Path('/usr/bin/betterbird')
 
+    @patch.object(Path, 'exists', return_value=False)
+    @patch('fileuzi.services.email_composer.subprocess.run',
+           side_effect=FileNotFoundError)
     @patch('fileuzi.services.email_composer.shutil.which')
-    def test_finds_thunderbird_in_path(self, mock_which):
+    def test_finds_thunderbird_in_path(self, mock_which, mock_run, mock_exists):
         """Find Thunderbird via PATH when Betterbird not available."""
         mock_which.side_effect = lambda x: (
             '/usr/bin/thunderbird' if x == 'thunderbird' else None
@@ -228,8 +231,11 @@ class TestDetectorPathSearch:
         result = detector.find_email_client(preferred='betterbird')
         assert result['client'] == 'betterbird'
 
+    @patch.object(Path, 'exists', return_value=False)
+    @patch('fileuzi.services.email_composer.subprocess.run',
+           side_effect=FileNotFoundError)
     @patch('fileuzi.services.email_composer.shutil.which', return_value=None)
-    def test_no_clients_found(self, mock_which):
+    def test_no_clients_found(self, mock_which, mock_run, mock_exists):
         """Return None when no clients found anywhere."""
         os_info = {'system': 'Linux', 'distro': None, 'package_manager': None}
         detector = EmailClientDetector(os_info=os_info)
@@ -393,8 +399,9 @@ class TestDetectorFlatpak:
         assert result['method'] == 'flatpak'
         assert result['path'] == wrapper
 
+    @patch.object(Path, 'exists', return_value=False)
     @patch('fileuzi.services.email_composer.subprocess.run')
-    def test_finds_via_flatpak_info(self, mock_run):
+    def test_finds_via_flatpak_info(self, mock_run, mock_exists):
         """Find client via flatpak info registry check."""
         mock_run.return_value = MagicMock(returncode=0)
         os_info = {'system': 'Linux', 'distro': 'fedora', 'package_manager': 'dnf'}
@@ -405,18 +412,20 @@ class TestDetectorFlatpak:
         assert result['method'] == 'flatpak'
         assert str(result['path']) == 'flatpak::eu.betterbird.Betterbird'
 
+    @patch.object(Path, 'exists', return_value=False)
     @patch('fileuzi.services.email_composer.subprocess.run',
            side_effect=FileNotFoundError)
-    def test_handles_missing_flatpak_command(self, mock_run):
+    def test_handles_missing_flatpak_command(self, mock_run, mock_exists):
         """Gracefully handle missing flatpak command."""
         os_info = {'system': 'Linux', 'distro': 'fedora', 'package_manager': 'dnf'}
         detector = EmailClientDetector(os_info=os_info)
         result = detector._search_flatpak('betterbird', 'eu.betterbird.Betterbird')
         assert result is None
 
+    @patch.object(Path, 'exists', return_value=False)
     @patch('fileuzi.services.email_composer.subprocess.run',
            return_value=MagicMock(returncode=1))
-    def test_not_found_in_flatpak(self, mock_run):
+    def test_not_found_in_flatpak(self, mock_run, mock_exists):
         """Return None when app not in Flatpak registry."""
         os_info = {'system': 'Linux', 'distro': 'fedora', 'package_manager': 'dnf'}
         detector = EmailClientDetector(os_info=os_info)
@@ -480,8 +489,11 @@ class TestDetectorFindAllClients:
         assert 'betterbird' in names
         assert 'thunderbird' in names
 
+    @patch.object(Path, 'exists', return_value=False)
+    @patch('fileuzi.services.email_composer.subprocess.run',
+           side_effect=FileNotFoundError)
     @patch('fileuzi.services.email_composer.shutil.which', return_value=None)
-    def test_returns_empty_when_none_found(self, mock_which):
+    def test_returns_empty_when_none_found(self, mock_which, mock_run, mock_exists):
         """Return empty list when no clients found."""
         os_info = {'system': 'Linux', 'distro': None, 'package_manager': None}
         detector = EmailClientDetector(os_info=os_info)
@@ -501,8 +513,11 @@ class TestDetectorFindEmailClient:
         result = detector.find_email_client(preferred='thunderbird')
         assert result['client'] == 'thunderbird'
 
+    @patch.object(Path, 'exists', return_value=False)
+    @patch('fileuzi.services.email_composer.subprocess.run',
+           side_effect=FileNotFoundError)
     @patch('fileuzi.services.email_composer.shutil.which')
-    def test_falls_back_when_preferred_missing(self, mock_which):
+    def test_falls_back_when_preferred_missing(self, mock_which, mock_run, mock_exists):
         """Fall back to first available when preferred not found."""
         mock_which.side_effect = lambda x: (
             '/usr/bin/thunderbird' if x == 'thunderbird' else None
@@ -1257,9 +1272,11 @@ class TestEmailComposerIntegration:
         assert "2506_20_FLOOR PLANS_P01.pdf" in candidates
         assert "2506_20_FLOOR PLANS_C01.pdf" in candidates
 
+    @patch.object(Path, 'exists', return_value=False)
     @patch('fileuzi.services.email_composer.shutil.which')
     @patch('fileuzi.services.email_composer.subprocess.run')
-    def test_fedora_flatpak_detection_and_launch(self, mock_run, mock_which, tmp_path):
+    def test_fedora_flatpak_detection_and_launch(self, mock_run, mock_which,
+                                                  mock_exists, tmp_path):
         """Fedora: detect Betterbird via Flatpak, then verify launch command."""
         # No binaries in PATH
         mock_which.return_value = None
