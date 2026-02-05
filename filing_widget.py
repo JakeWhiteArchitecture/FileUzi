@@ -1925,6 +1925,7 @@ class FilingWidget(QMainWindow):
             secondary_copies = 0
             actual_secondary_destinations = []  # Track ONLY destinations where files were actually copied
             supersede_messages = []  # Track drawing superseding actions
+            filed_paths = []  # Track actual destination paths for email attachments
 
             if self.email_data:
                 # Save selected email attachments
@@ -1956,6 +1957,7 @@ class FilingWidget(QMainWindow):
                                         f"Old version backed up to: {superseded}"
                                     )
                                 copied_count += 1
+                                filed_paths.append(replace_target)
                                 continue
                             except (ValueError, OSError) as e:
                                 QMessageBox.warning(
@@ -1969,6 +1971,7 @@ class FilingWidget(QMainWindow):
                         dst = dest_folder / final_filename
                         if safe_write_attachment(dst, att['data'], self.projects_root, final_filename):
                             copied_count += 1
+                            filed_paths.append(dst)
 
                         # Secondary filing to additional destinations
                         secondary_dests = att_widget.get_secondary_destinations()
@@ -2085,6 +2088,7 @@ class FilingWidget(QMainWindow):
                                         f"Old version backed up to: {superseded}"
                                     )
                                 copied_count += 1
+                                filed_paths.append(replace_target)
                                 continue
                             except (ValueError, OSError) as e:
                                 QMessageBox.warning(
@@ -2099,6 +2103,7 @@ class FilingWidget(QMainWindow):
                         if src.is_file():
                             if safe_copy(src, dst, self.projects_root):
                                 copied_count += 1
+                                filed_paths.append(dst)
 
                             # Secondary filing to additional destinations
                             secondary_dests = file_widget.get_secondary_destinations()
@@ -2236,7 +2241,7 @@ class FilingWidget(QMainWindow):
                 self.create_email_toggle.isVisible() and
                 self.create_email_toggle.isChecked()):
                 self._launch_email_after_filing(
-                    dest_folder, project_path, contact, desc
+                    filed_paths, project_path, contact, desc
                 )
 
             self.reset_form()
@@ -2619,11 +2624,19 @@ class FilingWidget(QMainWindow):
         if not (is_export and is_regular_files):
             self.create_email_toggle.setChecked(False)
 
-    def _launch_email_after_filing(self, dest_folder, project_path, contact, desc):
-        """Launch email client with filed documents as attachments after filing."""
+    def _launch_email_after_filing(self, filed_paths, project_path, contact, desc):
+        """Launch email client with filed documents as attachments after filing.
+
+        Args:
+            filed_paths: List of Path objects to actually-filed documents
+            project_path: Path to the project folder
+            contact: Recipient name from UI
+            desc: Description from UI
+        """
         import logging
         log = logging.getLogger('fileuzi.services.email_composer')
-        log.info("_launch_email_after_filing: dest=%s project=%s", dest_folder, project_path)
+        log.info("_launch_email_after_filing: %d filed paths, project=%s",
+                 len(filed_paths), project_path)
         try:
             # Get email client path
             client_path = get_email_client_path(self.db_path)
@@ -2644,17 +2657,13 @@ class FilingWidget(QMainWindow):
             # Generate email body
             body_html = generate_email_body(contact, signature_html)
 
-            # Collect filed attachment paths from destination folder
-            attachment_paths = []
-            dest_folder = Path(dest_folder)
-            if dest_folder.exists():
-                for item in sorted(dest_folder.iterdir()):
-                    if item.is_file():
-                        attachment_paths.append(item)
+            # Use the actual filed paths (only files that exist)
+            attachment_paths = [p for p in filed_paths if Path(p).is_file()]
+            for p in attachment_paths:
+                log.info("  attachment: %s", p)
 
-            log.info("  attachments found: %d", len(attachment_paths))
             if not attachment_paths:
-                log.warning("  No attachments found in %s — skipping email", dest_folder)
+                log.warning("  No filed paths available — skipping email")
                 return
 
             # Launch email client

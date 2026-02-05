@@ -759,10 +759,14 @@ def get_email_client_path(db_path):
         if str(saved_path).startswith("flatpak::"):
             logger.info("  Using saved Flatpak path: %s", saved_path)
             return str(saved_path)
-        if saved_path.exists():
+        # Stale old-format flatpak export wrapper path — re-detect
+        if '/flatpak/exports/bin/' in str(saved_path):
+            logger.info("  Stale flatpak export wrapper path, re-detecting")
+        elif saved_path.exists():
             logger.info("  Saved path verified on disk")
             return saved_path
-        logger.warning("  Saved path no longer exists, re-detecting")
+        else:
+            logger.warning("  Saved path no longer exists, re-detecting")
     else:
         logger.info("  No saved preference, detecting fresh")
 
