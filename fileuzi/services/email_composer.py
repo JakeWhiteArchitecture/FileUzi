@@ -11,7 +11,6 @@ import platform
 import shutil
 import sqlite3
 import subprocess
-import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
@@ -858,8 +857,9 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
         attachments.append(f"file://{abs_path}")
     attachment_string = ','.join(attachments) if attachments else ''
 
-    # URL encode the body HTML
-    body_encoded = urllib.parse.quote(body_html)
+    # Escape single quotes in body HTML for -compose parameter
+    # (do NOT URL-encode — that's only for mailto: URIs)
+    body_escaped = body_html.replace("'", "\\'")
 
     # Build -compose parameter string
     compose_params = [
@@ -868,7 +868,7 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
     ]
     if attachment_string:
         compose_params.append(f"attachment='{attachment_string}'")
-    compose_params.append(f"body='{body_encoded}'")
+    compose_params.append(f"body='{body_escaped}'")
     compose_params.append("format=html")
     compose_string = ','.join(compose_params)
     logger.debug("  compose_string length: %d", len(compose_string))
