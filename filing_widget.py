@@ -267,6 +267,15 @@ class FilingWidget(QMainWindow):
             # Scale to 120px height (50% larger than 80px)
             scaled_pixmap = pixmap.scaledToHeight(120, Qt.TransformationMode.SmoothTransformation)
             logo_label.setPixmap(scaled_pixmap)
+        else:
+            # Fallback styled text logo
+            logo_label.setText("FU")
+            logo_label.setFixedSize(48, 48)
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            logo_label.setStyleSheet(
+                f"background-color: {COLORS['primary']}; color: #ffffff; "
+                f"font-size: 20px; font-weight: bold; border-radius: 10px;"
+            )
         header_layout.addWidget(logo_label)
 
         layout.addLayout(header_layout)
@@ -1573,8 +1582,9 @@ class FilingWidget(QMainWindow):
             except:
                 size_str = "? KB"
 
-            # Check if this is a drawing PDF
-            is_drawing = is_drawing_pdf(filename, job_for_drawing, self.project_mapping) if job_for_drawing else False
+            # Check if this is a drawing PDF (project_mapping can identify
+            # drawings by custom prefix even without a job number)
+            is_drawing = is_drawing_pdf(filename, job_for_drawing, self.project_mapping)
             if is_drawing:
                 has_drawings = True
 
