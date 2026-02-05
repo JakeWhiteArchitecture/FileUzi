@@ -435,6 +435,36 @@ class FilingWidget(QMainWindow):
         self.files_keystage_toggle.setChecked(False)
         self.files_keystage_toggle.toggled.connect(self._on_keystage_toggled)
         files_keystage_layout.addWidget(self.files_keystage_toggle)
+
+        # Create Email toggle (only visible for non-.eml exports)
+        self.create_email_toggle = QCheckBox("Create Email")
+        self.create_email_toggle.setStyleSheet(f"""
+            QCheckBox {{
+                color: {COLORS['text']};
+                font-size: 12px;
+                spacing: 6px;
+            }}
+            QCheckBox::indicator {{
+                width: 14px;
+                height: 14px;
+                border-radius: 3px;
+                border: 2px solid #a855f7;
+            }}
+            QCheckBox::indicator:unchecked {{
+                background-color: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #a855f7;
+                border-color: #a855f7;
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: #9333ea;
+            }}
+        """)
+        self.create_email_toggle.setChecked(False)
+        self.create_email_toggle.setVisible(False)
+        files_keystage_layout.addWidget(self.create_email_toggle)
+
         files_keystage_layout.addStretch()
         files_layout.addLayout(files_keystage_layout)
 
@@ -642,22 +672,6 @@ class FilingWidget(QMainWindow):
             self.print_pdf_toggle.setToolTip("PDF printing requires weasyprint — run: pip install weasyprint")
         toggles_layout.addWidget(self.print_pdf_toggle)
         self.pdf_placeholder_widget = None  # Track PDF placeholder in attachments
-
-        # Create Email toggle (only visible for non-.eml exports)
-        self.create_email_toggle = QCheckBox("Create Email")
-        self.create_email_toggle.setStyleSheet(f"""
-            QCheckBox {{
-                color: {COLORS['text']};
-                font-size: 12px;
-                spacing: 6px;
-            }}
-            QCheckBox:disabled {{
-                color: {COLORS['text_secondary']};
-            }}
-        """)
-        self.create_email_toggle.setChecked(False)
-        self.create_email_toggle.setVisible(False)
-        toggles_layout.addWidget(self.create_email_toggle)
 
         toggles_layout.addStretch()
         email_layout.addLayout(toggles_layout)
