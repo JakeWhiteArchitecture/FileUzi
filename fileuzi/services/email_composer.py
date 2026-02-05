@@ -834,13 +834,14 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
         )
 
     # Build attachment string with file:// URIs
+    # Use 'file://' + raw path instead of Path.as_uri() because
+    # Betterbird/Thunderbird don't always decode %20-encoded spaces
     attachments = []
     for path in attachment_paths:
-        abs_path = Path(path).resolve()
-        file_uri = abs_path.as_uri()
-        attachments.append(file_uri)
+        abs_path = str(Path(path).resolve())
+        attachments.append(f"file://{abs_path}")
 
-    attachment_string = ','.join(attachments)
+    attachment_string = ','.join(attachments) if attachments else ''
 
     # URL encode the body HTML
     body_encoded = urllib.parse.quote(body_html)
@@ -849,12 +850,14 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
     compose_params = [
         "to=''",
         f"subject='{subject}'",
-        f"attachment='{attachment_string}'",
-        f"body='{body_encoded}'",
-        "format=html",
     ]
+    if attachment_string:
+        compose_params.append(f"attachment='{attachment_string}'")
+    compose_params.append(f"body='{body_encoded}'")
+    compose_params.append("format=html")
     compose_string = ','.join(compose_params)
     logger.debug("  compose_string length: %d", len(compose_string))
+    logger.debug("  compose_string preview: %s", compose_string[:300])
 
     # Check command line length
     if len(compose_string) > MAX_COMMAND_LENGTH:
