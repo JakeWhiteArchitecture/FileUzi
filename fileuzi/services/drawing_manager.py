@@ -249,11 +249,14 @@ def supersede_drawings(current_drawings_folder, new_file_path, projects_root, ci
     """
     Handle drawing revision superseding when a new drawing arrives.
 
-    If older revisions of the same drawing exist, move them to Superseded subfolder.
+    If older revisions of the same drawing exist, move them to Superseded subfolder
+    using the safe replace_with_supersede workflow.
 
     Returns:
         tuple: (success, message, superseded_count)
     """
+    from fileuzi.services.filing_operations import replace_with_supersede
+
     logger = get_file_ops_logger(projects_root)
     new_file = Path(new_file_path)
 
@@ -288,35 +291,20 @@ def supersede_drawings(current_drawings_folder, new_file_path, projects_root, ci
     if not to_supersede:
         return (True, None, 0)
 
-    superseded_folder = Path(current_drawings_folder) / 'Superseded'
-    if not superseded_folder.exists():
-        try:
-            superseded_folder.mkdir(parents=True, exist_ok=True)
-            logger.info(f"MKDIR | Created Superseded folder: {superseded_folder}")
-        except Exception as e:
-            logger.error(f"SUPERSEDE FAILED | Could not create Superseded folder: {e}")
-            return (False, f"Could not create Superseded folder: {e}", 0)
-
-    superseded_count = 0
     cb = circuit_breaker or get_circuit_breaker()
+    superseded_count = 0
 
     for old_path, old_parsed in to_supersede:
-        dest_path = superseded_folder / old_path.name
-
         try:
-            validate_path_jail(dest_path, projects_root)
-            cb.record("SUPERSEDE", old_path, dest_path)
-
-            shutil.copy2(str(old_path), str(dest_path))
-
-            if dest_path.exists() and dest_path.stat().st_size == old_path.stat().st_size:
-                old_path.unlink()
-                logger.info(f"SUPERSEDE | {old_path.name} -> Superseded/")
+            # Use safe superseding workflow: back up old file, then delete it
+            # We pass the old file's own content as the "new" content = None
+            # since we just want to move the old file to Superseded (not replace it)
+            # Instead, we use replace_with_supersede to back up, then unlink old
+            superseded_path = _supersede_single_drawing(
+                old_path, projects_root, cb, logger
+            )
+            if superseded_path:
                 superseded_count += 1
-            else:
-                logger.error(f"SUPERSEDE VERIFY FAILED | {old_path.name} - copy verification failed, source retained")
-                if dest_path.exists():
-                    dest_path.unlink()
 
         except PathJailViolation as e:
             logger.error(f"SUPERSEDE BLOCKED | Path jail violation: {e}")
@@ -325,12 +313,71 @@ def supersede_drawings(current_drawings_folder, new_file_path, projects_root, ci
             raise
         except Exception as e:
             logger.error(f"SUPERSEDE FAILED | {old_path.name}: {e}")
+            # Abort remaining supersedes for this drawing
+            break
 
     if superseded_count > 0:
         msg = f"Superseded {superseded_count} older revision(s) → Superseded/"
         return (True, msg, superseded_count)
 
     return (True, None, 0)
+
+
+def _supersede_single_drawing(old_path, projects_root, circuit_breaker, logger):
+    """
+    Move a single old drawing to the Superseded folder using the safe workflow.
+
+    Returns:
+        Path where old file was backed up, or None if failed.
+    """
+    old_path = Path(old_path)
+    superseded_dir = old_path.parent / 'Superseded'
+    superseded_path = superseded_dir / old_path.name
+
+    # Validate paths
+    validate_path_jail(superseded_dir, projects_root)
+    validate_path_jail(superseded_path, projects_root)
+
+    # Create Superseded folder if needed
+    if superseded_dir.exists() and not superseded_dir.is_dir():
+        logger.error(
+            f"SUPERSEDE FAILED | Cannot create Superseded folder - "
+            f"a file with that name already exists: {superseded_dir}"
+        )
+        return None
+
+    if not superseded_dir.exists():
+        superseded_dir.mkdir(exist_ok=True)
+        circuit_breaker.record("MKDIR", str(old_path.parent), str(superseded_dir))
+        logger.info(f"MKDIR | Created Superseded folder: {superseded_dir}")
+
+    # Handle naming collision in Superseded
+    if superseded_path.exists():
+        from datetime import datetime
+        stem = old_path.stem
+        suffix = old_path.suffix
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        superseded_path = superseded_dir / f"{stem}_{timestamp}{suffix}"
+        validate_path_jail(superseded_path, projects_root)
+
+    # Copy old file to Superseded
+    old_size = old_path.stat().st_size
+    circuit_breaker.record("COPY", str(old_path), str(superseded_path))
+    shutil.copy2(str(old_path), str(superseded_path))
+
+    # Verify copy
+    if superseded_path.stat().st_size != old_size:
+        superseded_path.unlink()
+        logger.error(
+            f"SUPERSEDE VERIFY FAILED | {old_path.name} - "
+            f"copy verification failed, source retained"
+        )
+        return None
+
+    # Delete old file (it's been safely backed up)
+    old_path.unlink()
+    logger.info(f"SUPERSEDE | {old_path.name} -> Superseded/")
+    return superseded_path
 
 
 def is_current_drawings_folder(folder_path):

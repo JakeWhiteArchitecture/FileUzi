@@ -58,6 +58,8 @@ from .pdf_generator import (
 
 from .duplicate_scanner import scan_for_file_duplicates
 
+from .filing_operations import replace_with_supersede
+
 from .contact_utils import (
     parse_import_export_folder,
     find_previous_contacts,
@@ -113,6 +115,8 @@ __all__ = [
     'process_outbound_email_capture',
     # Duplicate scanner
     'scan_for_file_duplicates',
+    # Filing operations
+    'replace_with_supersede',
     # Contact utils
     'parse_import_export_folder',
     'find_previous_contacts',
