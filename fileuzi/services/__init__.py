@@ -67,6 +67,8 @@ from .contact_utils import (
 )
 
 from .email_composer import (
+    detect_os_info,
+    EmailClientDetector,
     generate_email_subject,
     extract_first_name,
     generate_email_body,
@@ -135,6 +137,8 @@ __all__ = [
     'find_previous_contacts',
     'fuzzy_match_contact',
     # Email composer
+    'detect_os_info',
+    'EmailClientDetector',
     'generate_email_subject',
     'extract_first_name',
     'generate_email_body',

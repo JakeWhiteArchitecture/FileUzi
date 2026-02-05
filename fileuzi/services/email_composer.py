@@ -6,6 +6,7 @@ Generates email subjects, bodies, signatures and launches email clients
 """
 
 import os
+import platform
 import shutil
 import sqlite3
 import subprocess
@@ -160,64 +161,444 @@ def load_email_signature(project_root):
 
 
 # ============================================================================
+# OS & Distribution Detection
+# ============================================================================
+
+def detect_os_info():
+    """
+    Detect operating system, Linux distribution, and package manager.
+
+    Returns:
+        {
+            'system': 'Linux' | 'Windows' | 'Darwin',
+            'distro': 'fedora' | 'ubuntu' | 'debian' | 'arch' | None,
+            'package_manager': 'dnf' | 'apt' | 'pacman' | 'brew' | None
+        }
+    """
+    system = platform.system()
+    distro = None
+    package_manager = None
+
+    if system == 'Linux':
+        # Read /etc/os-release for distro info
+        try:
+            os_release = Path('/etc/os-release').read_text()
+            os_release_lower = os_release.lower()
+            if 'fedora' in os_release_lower:
+                distro = 'fedora'
+            elif 'ubuntu' in os_release_lower:
+                distro = 'ubuntu'
+            elif 'debian' in os_release_lower:
+                distro = 'debian'
+            elif 'arch' in os_release_lower:
+                distro = 'arch'
+            elif 'opensuse' in os_release_lower or 'suse' in os_release_lower:
+                distro = 'suse'
+            elif 'manjaro' in os_release_lower:
+                distro = 'manjaro'
+            elif 'mint' in os_release_lower:
+                distro = 'mint'
+        except (FileNotFoundError, PermissionError):
+            pass
+
+        # Detect package manager by checking which are available
+        if shutil.which('dnf'):
+            package_manager = 'dnf'
+        elif shutil.which('apt'):
+            package_manager = 'apt'
+        elif shutil.which('pacman'):
+            package_manager = 'pacman'
+        elif shutil.which('zypper'):
+            package_manager = 'zypper'
+
+    elif system == 'Darwin':
+        if shutil.which('brew'):
+            package_manager = 'brew'
+
+    return {
+        'system': system,
+        'distro': distro,
+        'package_manager': package_manager,
+    }
+
+
+# ============================================================================
 # Email Client Detection
 # ============================================================================
 
-def _find_executable(name, known_paths, flatpak_id=None):
+# Client metadata: names, executable names, Flatpak IDs, Snap names
+_CLIENT_REGISTRY = {
+    'betterbird': {
+        'exe_names': ['betterbird'],
+        'flatpak_id': 'eu.betterbird.Betterbird',
+        'snap_name': None,
+        'supports_compose': True,
+    },
+    'thunderbird': {
+        'exe_names': ['thunderbird'],
+        'flatpak_id': 'org.mozilla.Thunderbird',
+        'snap_name': 'thunderbird',
+        'supports_compose': True,
+    },
+}
+
+# Platform-specific search paths
+_LINUX_PATHS = {
+    'betterbird': [
+        '/usr/bin/betterbird',
+        '/usr/local/bin/betterbird',
+        '/opt/betterbird/betterbird',
+    ],
+    'thunderbird': [
+        '/usr/bin/thunderbird',
+        '/usr/local/bin/thunderbird',
+        '/opt/thunderbird/thunderbird',
+    ],
+}
+
+_WINDOWS_PATHS = {
+    'betterbird': [
+        r'C:\Program Files\Betterbird\betterbird.exe',
+        r'C:\Program Files (x86)\Betterbird\betterbird.exe',
+    ],
+    'thunderbird': [
+        r'C:\Program Files\Mozilla Thunderbird\thunderbird.exe',
+        r'C:\Program Files (x86)\Mozilla Thunderbird\thunderbird.exe',
+    ],
+}
+
+_MACOS_PATHS = {
+    'betterbird': [
+        '/Applications/Betterbird.app/Contents/MacOS/betterbird',
+    ],
+    'thunderbird': [
+        '/Applications/Thunderbird.app/Contents/MacOS/thunderbird',
+    ],
+}
+
+
+class EmailClientDetector:
     """
-    Find an executable by name, checking PATH, known paths, and Flatpak.
+    Intelligent OS-aware email client detector.
 
-    Args:
-        name: Executable name (e.g., 'betterbird')
-        known_paths: List of filesystem paths to check
-        flatpak_id: Optional Flatpak app ID (e.g., 'eu.betterbird.Betterbird')
-
-    Returns:
-        Path to executable, or None if not found
+    Searches for email clients using a prioritised strategy:
+    1. PATH lookup (shutil.which)
+    2. Package manager verification (dnf, apt, pacman, brew)
+    3. Standard OS-specific install locations
+    4. Flatpak installations (Linux)
+    5. Snap installations (Linux)
+    6. User home directory locations
     """
-    # 1. Check PATH
-    in_path = shutil.which(name)
-    if in_path:
-        return Path(in_path)
 
-    # 2. Check known filesystem paths
-    for path_str in known_paths:
-        path = Path(path_str)
-        if path.exists():
-            return path
+    def __init__(self, os_info=None):
+        self.os_info = os_info or detect_os_info()
+        self._home = Path.home()
 
-    # 3. Check Flatpak exports (these are wrappers that work like normal executables)
-    if flatpak_id:
-        home = Path.home()
-        flatpak_paths = [
+    def find_all_clients(self):
+        """
+        Find all installed email clients that support -compose.
+
+        Returns:
+            List of dicts, each with:
+            {
+                'client': 'betterbird',
+                'path': Path or str,
+                'method': 'path' | 'package_manager' | 'filesystem' | 'flatpak' | 'snap',
+            }
+        """
+        found = []
+        for client_name, meta in _CLIENT_REGISTRY.items():
+            if not meta['supports_compose']:
+                continue
+            result = self._search_client(client_name, meta)
+            if result:
+                found.append(result)
+        return found
+
+    def find_email_client(self, preferred=None):
+        """
+        Find the best available email client.
+
+        Args:
+            preferred: Optional client name to search first ('betterbird')
+
+        Returns:
+            {
+                'client': 'betterbird',
+                'path': Path('/usr/bin/betterbird'),
+                'method': 'path',
+                'all_found': [list of all detected clients]
+            }
+            or None if nothing found
+        """
+        all_found = self.find_all_clients()
+        if not all_found:
+            return None
+
+        # Pick primary: preferred first, then by registry order
+        primary = None
+        if preferred:
+            for item in all_found:
+                if item['client'] == preferred:
+                    primary = item
+                    break
+
+        if not primary:
+            primary = all_found[0]
+
+        return {
+            'client': primary['client'],
+            'path': primary['path'],
+            'method': primary['method'],
+            'all_found': all_found,
+        }
+
+    def _search_client(self, client_name, meta):
+        """Run the full search strategy for a single client."""
+        # 1. PATH lookup
+        for exe_name in meta['exe_names']:
+            found = shutil.which(exe_name)
+            if found:
+                return {
+                    'client': client_name,
+                    'path': Path(found),
+                    'method': 'path',
+                }
+
+        # 2. Package manager verification
+        result = self._search_via_package_manager(client_name)
+        if result:
+            return result
+
+        # 3. OS-specific filesystem paths
+        result = self._search_filesystem(client_name)
+        if result:
+            return result
+
+        # 4. Flatpak (Linux only)
+        if self.os_info['system'] == 'Linux' and meta.get('flatpak_id'):
+            result = self._search_flatpak(
+                client_name, meta['flatpak_id']
+            )
+            if result:
+                return result
+
+        # 5. Snap (Linux only)
+        if self.os_info['system'] == 'Linux' and meta.get('snap_name'):
+            result = self._search_snap(
+                client_name, meta['snap_name']
+            )
+            if result:
+                return result
+
+        # 6. User home directory
+        result = self._search_home_directory(client_name, meta)
+        if result:
+            return result
+
+        return None
+
+    def _search_via_package_manager(self, client_name):
+        """Query package manager for installed client."""
+        pm = self.os_info.get('package_manager')
+        if not pm:
+            return None
+
+        try:
+            if pm == 'dnf':
+                result = subprocess.run(
+                    ['rpm', '-ql', client_name],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        if '/bin/' in line and line.strip().endswith(client_name):
+                            path = Path(line.strip())
+                            if path.exists():
+                                return {
+                                    'client': client_name,
+                                    'path': path,
+                                    'method': 'package_manager',
+                                }
+
+            elif pm == 'apt':
+                result = subprocess.run(
+                    ['dpkg', '-L', client_name],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        if '/bin/' in line and line.strip().endswith(client_name):
+                            path = Path(line.strip())
+                            if path.exists():
+                                return {
+                                    'client': client_name,
+                                    'path': path,
+                                    'method': 'package_manager',
+                                }
+
+            elif pm == 'pacman':
+                result = subprocess.run(
+                    ['pacman', '-Ql', client_name],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.splitlines():
+                        parts = line.strip().split(None, 1)
+                        if len(parts) == 2 and '/bin/' in parts[1]:
+                            if parts[1].endswith(client_name):
+                                path = Path(parts[1])
+                                if path.exists():
+                                    return {
+                                        'client': client_name,
+                                        'path': path,
+                                        'method': 'package_manager',
+                                    }
+
+            elif pm == 'brew':
+                result = subprocess.run(
+                    ['brew', '--prefix', client_name],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    prefix = Path(result.stdout.strip())
+                    bin_path = prefix / 'bin' / client_name
+                    if bin_path.exists():
+                        return {
+                            'client': client_name,
+                            'path': bin_path,
+                            'method': 'package_manager',
+                        }
+
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+
+        return None
+
+    def _search_filesystem(self, client_name):
+        """Search OS-specific standard install locations."""
+        system = self.os_info['system']
+
+        if system == 'Linux':
+            paths = _LINUX_PATHS.get(client_name, [])
+        elif system == 'Windows':
+            paths = _WINDOWS_PATHS.get(client_name, [])
+            # Also check %LOCALAPPDATA%
+            local_app = os.environ.get('LOCALAPPDATA', '')
+            if local_app:
+                paths.append(
+                    str(Path(local_app) / 'Programs' / client_name.title()
+                        / f'{client_name}.exe')
+                )
+        elif system == 'Darwin':
+            paths = _MACOS_PATHS.get(client_name, [])
+        else:
+            paths = []
+
+        for path_str in paths:
+            path = Path(path_str)
+            if path.exists():
+                return {
+                    'client': client_name,
+                    'path': path,
+                    'method': 'filesystem',
+                }
+
+        return None
+
+    def _search_flatpak(self, client_name, flatpak_id):
+        """Check Flatpak installations."""
+        # Check export wrappers first (these launch like normal executables)
+        flatpak_export_paths = [
             Path(f"/var/lib/flatpak/exports/bin/{flatpak_id}"),
-            home / f".local/share/flatpak/exports/bin/{flatpak_id}",
+            self._home / f".local/share/flatpak/exports/bin/{flatpak_id}",
         ]
-        for fp in flatpak_paths:
+        for fp in flatpak_export_paths:
             if fp.exists():
-                return fp
+                return {
+                    'client': client_name,
+                    'path': fp,
+                    'method': 'flatpak',
+                }
 
-        # 4. Check if flatpak app is installed (flatpak run would work)
+        # Query flatpak registry
         try:
             result = subprocess.run(
-                ["flatpak", "info", flatpak_id],
+                ['flatpak', 'info', flatpak_id],
                 capture_output=True, timeout=5
             )
             if result.returncode == 0:
-                # App is installed; use 'flatpak run' wrapper
-                # Return a sentinel path that launch_email_compose handles
-                return Path(f"flatpak::{flatpak_id}")
+                return {
+                    'client': client_name,
+                    'path': Path(f"flatpak::{flatpak_id}"),
+                    'method': 'flatpak',
+                }
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
 
-    return None
+        return None
+
+    def _search_snap(self, client_name, snap_name):
+        """Check Snap installations."""
+        # Check snap binary path
+        snap_bin = Path(f"/snap/bin/{snap_name}")
+        if snap_bin.exists():
+            return {
+                'client': client_name,
+                'path': snap_bin,
+                'method': 'snap',
+            }
+
+        # Query snap list
+        try:
+            result = subprocess.run(
+                ['snap', 'list', snap_name],
+                capture_output=True, timeout=5
+            )
+            if result.returncode == 0:
+                return {
+                    'client': client_name,
+                    'path': snap_bin,
+                    'method': 'snap',
+                }
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        return None
+
+    def _search_home_directory(self, client_name, meta):
+        """Search user home directory for portable/local installs."""
+        exe_name = meta['exe_names'][0]
+        home_paths = [
+            self._home / '.local' / 'bin' / exe_name,
+            self._home / 'Applications' / exe_name,
+            self._home / '.local' / 'share' / 'applications' / exe_name,
+        ]
+
+        if self.os_info['system'] == 'Darwin':
+            home_paths.append(
+                self._home / 'Applications'
+                / f'{client_name.title()}.app' / 'Contents' / 'MacOS'
+                / exe_name
+            )
+
+        for path in home_paths:
+            if path.exists():
+                return {
+                    'client': client_name,
+                    'path': path,
+                    'method': 'filesystem',
+                }
+
+        return None
 
 
 def detect_email_clients():
     """
     Detect installed email clients (Betterbird and Thunderbird).
 
-    Checks PATH, common installation paths, and Flatpak installations.
+    Uses OS-aware detection: PATH, package manager, filesystem,
+    Flatpak, and Snap.
 
     Returns:
         Dictionary with client names and paths:
@@ -226,43 +607,14 @@ def detect_email_clients():
             'thunderbird': Path('/usr/bin/thunderbird') or None
         }
     """
-    home = Path.home()
+    detector = EmailClientDetector()
+    all_found = detector.find_all_clients()
 
-    betterbird_paths = [
-        # Linux
-        "/usr/bin/betterbird",
-        "/usr/local/bin/betterbird",
-        "/opt/betterbird/betterbird",
-        str(home / ".local/bin/betterbird"),
-        str(home / "Applications/betterbird"),
-        # Windows
-        "C:\\Program Files\\Betterbird\\betterbird.exe",
-        # macOS
-        "/Applications/Betterbird.app/Contents/MacOS/betterbird",
-    ]
-
-    thunderbird_paths = [
-        # Linux
-        "/usr/bin/thunderbird",
-        "/usr/local/bin/thunderbird",
-        "/opt/thunderbird/thunderbird",
-        str(home / ".local/bin/thunderbird"),
-        # Windows
-        "C:\\Program Files\\Mozilla Thunderbird\\thunderbird.exe",
-        # macOS
-        "/Applications/Thunderbird.app/Contents/MacOS/thunderbird",
-    ]
-
-    clients = {
-        'betterbird': _find_executable(
-            "betterbird", betterbird_paths,
-            flatpak_id="eu.betterbird.Betterbird"
-        ),
-        'thunderbird': _find_executable(
-            "thunderbird", thunderbird_paths,
-            flatpak_id="org.mozilla.Thunderbird"
-        ),
-    }
+    clients = {'betterbird': None, 'thunderbird': None}
+    for item in all_found:
+        name = item['client']
+        if name in clients and clients[name] is None:
+            clients[name] = item['path']
 
     return clients
 
@@ -276,6 +628,7 @@ _EMAIL_CLIENT_CONFIG_SCHEMA = """
         id INTEGER PRIMARY KEY CHECK (id = 1),
         client_name TEXT NOT NULL,
         client_path TEXT NOT NULL,
+        detection_method TEXT DEFAULT 'auto',
         auto_detected BOOLEAN DEFAULT TRUE,
         last_verified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -283,7 +636,7 @@ _EMAIL_CLIENT_CONFIG_SCHEMA = """
 
 
 def save_email_client_preference(db_path, client_name, client_path,
-                                  auto_detected=True):
+                                  auto_detected=True, detection_method='auto'):
     """
     Save email client preference to database.
 
@@ -292,15 +645,18 @@ def save_email_client_preference(db_path, client_name, client_path,
         client_name: 'betterbird' or 'thunderbird'
         client_path: Full path to executable
         auto_detected: Whether path was auto-detected or user-configured
+        detection_method: How client was found ('path', 'package_manager',
+                          'filesystem', 'flatpak', 'snap', 'manual')
     """
     conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
     cursor.execute(_EMAIL_CLIENT_CONFIG_SCHEMA)
     cursor.execute(
         "INSERT OR REPLACE INTO email_client_config "
-        "(id, client_name, client_path, auto_detected, last_verified) "
-        "VALUES (1, ?, ?, ?, ?)",
-        (client_name, str(client_path), auto_detected, datetime.now().isoformat())
+        "(id, client_name, client_path, detection_method, auto_detected, last_verified) "
+        "VALUES (1, ?, ?, ?, ?, ?)",
+        (client_name, str(client_path), detection_method,
+         auto_detected, datetime.now().isoformat())
     )
     conn.commit()
     conn.close()
@@ -340,6 +696,19 @@ def load_email_client_preference(db_path):
         "FROM email_client_config WHERE id = 1"
     )
     row = cursor.fetchone()
+
+    # Try to get detection_method (column may not exist in old DBs)
+    detection_method = 'auto'
+    try:
+        cursor.execute(
+            "SELECT detection_method FROM email_client_config WHERE id = 1"
+        )
+        method_row = cursor.fetchone()
+        if method_row and method_row[0]:
+            detection_method = method_row[0]
+    except sqlite3.OperationalError:
+        pass
+
     conn.close()
 
     if not row:
@@ -350,6 +719,7 @@ def load_email_client_preference(db_path):
         'client_path': Path(row[1]),
         'auto_detected': bool(row[2]),
         'last_verified': row[3],
+        'detection_method': detection_method,
     }
 
 
@@ -376,26 +746,24 @@ def get_email_client_path(db_path):
         if saved_path.exists():
             return saved_path
 
-    # Re-detect
-    clients = detect_email_clients()
+    # Re-detect using full OS-aware detection
+    detector = EmailClientDetector()
+    result = detector.find_email_client(preferred='betterbird')
 
-    # Prefer Betterbird
-    if clients['betterbird']:
-        client_name = 'betterbird'
-        client_path = clients['betterbird']
-    elif clients['thunderbird']:
-        client_name = 'thunderbird'
-        client_path = clients['thunderbird']
-    else:
+    if not result:
         raise FileNotFoundError(
             "No email client found. "
             "Please install Betterbird or Thunderbird."
         )
 
     save_email_client_preference(
-        db_path, client_name, client_path, auto_detected=True
+        db_path,
+        result['client'],
+        result['path'],
+        auto_detected=True,
+        detection_method=result['method'],
     )
-    return client_path
+    return result['path']
 
 
 # ============================================================================
