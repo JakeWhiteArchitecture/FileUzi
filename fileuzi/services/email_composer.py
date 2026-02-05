@@ -5,6 +5,7 @@ Generates email subjects, bodies, signatures and launches email clients
 (Betterbird/Thunderbird) with pre-populated composition windows.
 """
 
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -162,9 +163,61 @@ def load_email_signature(project_root):
 # Email Client Detection
 # ============================================================================
 
+def _find_executable(name, known_paths, flatpak_id=None):
+    """
+    Find an executable by name, checking PATH, known paths, and Flatpak.
+
+    Args:
+        name: Executable name (e.g., 'betterbird')
+        known_paths: List of filesystem paths to check
+        flatpak_id: Optional Flatpak app ID (e.g., 'eu.betterbird.Betterbird')
+
+    Returns:
+        Path to executable, or None if not found
+    """
+    # 1. Check PATH
+    in_path = shutil.which(name)
+    if in_path:
+        return Path(in_path)
+
+    # 2. Check known filesystem paths
+    for path_str in known_paths:
+        path = Path(path_str)
+        if path.exists():
+            return path
+
+    # 3. Check Flatpak exports (these are wrappers that work like normal executables)
+    if flatpak_id:
+        home = Path.home()
+        flatpak_paths = [
+            Path(f"/var/lib/flatpak/exports/bin/{flatpak_id}"),
+            home / f".local/share/flatpak/exports/bin/{flatpak_id}",
+        ]
+        for fp in flatpak_paths:
+            if fp.exists():
+                return fp
+
+        # 4. Check if flatpak app is installed (flatpak run would work)
+        try:
+            result = subprocess.run(
+                ["flatpak", "info", flatpak_id],
+                capture_output=True, timeout=5
+            )
+            if result.returncode == 0:
+                # App is installed; use 'flatpak run' wrapper
+                # Return a sentinel path that launch_email_compose handles
+                return Path(f"flatpak::{flatpak_id}")
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+    return None
+
+
 def detect_email_clients():
     """
     Detect installed email clients (Betterbird and Thunderbird).
+
+    Checks PATH, common installation paths, and Flatpak installations.
 
     Returns:
         Dictionary with client names and paths:
@@ -173,44 +226,43 @@ def detect_email_clients():
             'thunderbird': Path('/usr/bin/thunderbird') or None
         }
     """
-    clients = {}
+    home = Path.home()
 
-    # Known installation paths per platform
     betterbird_paths = [
+        # Linux
         "/usr/bin/betterbird",
+        "/usr/local/bin/betterbird",
+        "/opt/betterbird/betterbird",
+        str(home / ".local/bin/betterbird"),
+        str(home / "Applications/betterbird"),
+        # Windows
         "C:\\Program Files\\Betterbird\\betterbird.exe",
+        # macOS
         "/Applications/Betterbird.app/Contents/MacOS/betterbird",
     ]
 
     thunderbird_paths = [
+        # Linux
         "/usr/bin/thunderbird",
+        "/usr/local/bin/thunderbird",
+        "/opt/thunderbird/thunderbird",
+        str(home / ".local/bin/thunderbird"),
+        # Windows
         "C:\\Program Files\\Mozilla Thunderbird\\thunderbird.exe",
+        # macOS
         "/Applications/Thunderbird.app/Contents/MacOS/thunderbird",
     ]
 
-    # Detect Betterbird
-    betterbird_in_path = shutil.which("betterbird")
-    if betterbird_in_path:
-        clients['betterbird'] = Path(betterbird_in_path)
-    else:
-        clients['betterbird'] = None
-        for path_str in betterbird_paths:
-            path = Path(path_str)
-            if path.exists():
-                clients['betterbird'] = path
-                break
-
-    # Detect Thunderbird
-    thunderbird_in_path = shutil.which("thunderbird")
-    if thunderbird_in_path:
-        clients['thunderbird'] = Path(thunderbird_in_path)
-    else:
-        clients['thunderbird'] = None
-        for path_str in thunderbird_paths:
-            path = Path(path_str)
-            if path.exists():
-                clients['thunderbird'] = path
-                break
+    clients = {
+        'betterbird': _find_executable(
+            "betterbird", betterbird_paths,
+            flatpak_id="eu.betterbird.Betterbird"
+        ),
+        'thunderbird': _find_executable(
+            "thunderbird", thunderbird_paths,
+            flatpak_id="org.mozilla.Thunderbird"
+        ),
+    }
 
     return clients
 
@@ -316,8 +368,13 @@ def get_email_client_path(db_path):
     """
     # Try saved preference
     config = load_email_client_preference(db_path)
-    if config and config['client_path'].exists():
-        return config['client_path']
+    if config:
+        saved_path = config['client_path']
+        # Flatpak sentinel paths aren't real files - check differently
+        if str(saved_path).startswith("flatpak::"):
+            return saved_path
+        if saved_path.exists():
+            return saved_path
 
     # Re-detect
     clients = detect_email_clients()
@@ -408,7 +465,13 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
 
     # Launch email client
     try:
-        subprocess.Popen([str(client_path), '-compose', compose_string])
+        client_str = str(client_path)
+        if client_str.startswith("flatpak::"):
+            # Flatpak app - launch via 'flatpak run'
+            app_id = client_str.split("::", 1)[1]
+            subprocess.Popen(["flatpak", "run", app_id, '-compose', compose_string])
+        else:
+            subprocess.Popen([client_str, '-compose', compose_string])
     except FileNotFoundError:
         raise FileNotFoundError(
             f"Email client executable not found at: {client_path}\n\n"
