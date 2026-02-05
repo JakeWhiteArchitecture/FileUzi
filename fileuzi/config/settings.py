@@ -75,7 +75,7 @@ DATABASE_BACKUP_FILENAME = 'filing_widget_backup.db'
 
 # Configuration filenames
 FILING_RULES_FILENAME = 'filing_rules.csv'
-PROJECT_MAPPING_FILENAME = 'custom_project_number_mapping.csv'
+PROJECT_MAPPING_FILENAME = 'project_mapping.csv'
 OPERATIONS_LOG_FILENAME = 'filing_operations.log'
 
 # ============================================================================

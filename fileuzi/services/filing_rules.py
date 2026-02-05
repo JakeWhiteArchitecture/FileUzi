@@ -73,12 +73,12 @@ def load_project_mapping(projects_root):
     return mapping
 
 
-def apply_project_mapping(filename, mapping):
+def apply_project_mapping(text, mapping):
     """
-    Check if filename starts with a custom project number and return the local job number.
+    Check if text contains a custom project number and return the local job number.
 
     Args:
-        filename: The filename to check
+        text: The text to check (filename or subject line)
         mapping: Dict of custom_project_no -> local_job_no
 
     Returns:
@@ -87,10 +87,10 @@ def apply_project_mapping(filename, mapping):
     if not mapping:
         return None
 
-    # Check if filename starts with any custom project number
-    filename_upper = filename.upper()
+    # Check if text contains any custom project number (case-insensitive)
+    text_upper = text.upper()
     for custom_no, local_no in mapping.items():
-        if filename_upper.startswith(custom_no.upper()):
+        if custom_no.upper() in text_upper:
             return local_no
 
     return None

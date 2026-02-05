@@ -146,21 +146,22 @@ class TestImageConversion:
     def test_convert_image_to_png(self):
         """Test non-PNG images are converted to PNG."""
         # Create a minimal JPEG-like data (not actually valid)
-        # In real test, would use PIL to create valid image
         jpeg_data = b'\xff\xd8\xff' + b'\x00' * 100
 
-        # Mock PIL.Image
-        with patch('fileuzi.services.pdf_generator.Image') as mock_image:
-            mock_img = MagicMock()
-            mock_image.open.return_value = mock_img
+        # Mock PIL.Image and HAS_PIL flag
+        mock_image = MagicMock()
+        mock_img = MagicMock()
+        mock_image.open.return_value = mock_img
+        mock_output = MagicMock()
+        mock_img.save = MagicMock()
 
-            # Call convert
-            try:
-                result = convert_image_to_png(jpeg_data)
-                # If it works, result should be bytes
-            except Exception:
-                # May fail without proper image data
-                pass
+        with patch.object(
+            __import__('fileuzi.services.pdf_generator', fromlist=['pdf_generator']),
+            'Image', mock_image, create=True
+        ), patch('fileuzi.services.pdf_generator.HAS_PIL', True):
+            result = convert_image_to_png(jpeg_data)
+            # When PIL is available and mocked, the function should call Image.open
+            mock_image.open.assert_called_once()
 
     def test_png_image_not_converted(self):
         """Test PNG images are not unnecessarily converted."""

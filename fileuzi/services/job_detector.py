@@ -164,6 +164,13 @@ def detect_project_from_subject(subject, known_projects, project_mapping=None):
     if not subject:
         return None
 
+    # Normalize known_projects to a list of job number strings
+    # Handles both list of strings ['2506', '2407'] and list of tuples [('2506', 'name'), ...]
+    if known_projects and isinstance(known_projects[0], (list, tuple)):
+        known_job_numbers = [p[0] for p in known_projects]
+    else:
+        known_job_numbers = list(known_projects) if known_projects else []
+
     # Strip ALL RE:/FW:/Fwd: prefixes (handles multiple like "RE: RE: RE:")
     cleaned = subject
     while True:
@@ -183,14 +190,11 @@ def detect_project_from_subject(subject, known_projects, project_mapping=None):
     match = re.match(r'^(\d{4,5})\s*[-–]?\s*', cleaned)
     if match:
         job_number = match.group(1)
-        # Verify it's a known project
-        known_job_numbers = [p[0] for p in known_projects]
         if job_number in known_job_numbers:
             return job_number
 
     # Step 3: Look for 4-5 digit number anywhere in subject
     all_numbers = re.findall(r'\b(\d{4,5})\b', cleaned)
-    known_job_numbers = [p[0] for p in known_projects]
     for num in all_numbers:
         if num in known_job_numbers:
             return num
