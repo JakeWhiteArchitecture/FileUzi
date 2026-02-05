@@ -798,24 +798,13 @@ def get_email_client_path(db_path):
 # Email Compose Launch
 # ============================================================================
 
-def _strip_html(html):
-    """Convert HTML to plain text by stripping tags."""
-    import re
-    text = re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
-    text = re.sub(r'</?p[^>]*>', '\n', text, flags=re.IGNORECASE)
-    text = re.sub(r'<[^>]+>', '', text)
-    # Collapse runs of blank lines
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    return text.strip()
-
 def launch_email_compose(subject, attachment_paths, body_html, client_path):
     """
     Launch email client with pre-populated composition window.
 
-    For native installs uses the Thunderbird/Betterbird ``-compose``
-    parameter.  For Flatpak installs uses ``--file-forwarding`` with a
-    ``mailto:`` URI so the XDG document portal exports the attachment
-    files into the sandbox (the sandbox cannot see host paths directly).
+    Uses the Thunderbird/Betterbird ``-compose`` parameter for both native
+    and Flatpak installs.  For Flatpak, ``--filesystem=home`` is added so
+    the sandboxed app can read attachment files under ``$HOME``.
 
     Args:
         subject: Formatted email subject line
@@ -848,81 +837,51 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
             f"Please file in smaller batches or use file sharing service."
         )
 
-    client_str = str(client_path)
+    # Build attachment string with raw file:// URIs (no %20 encoding —
+    # Betterbird/Thunderbird expects literal spaces in paths)
+    attachments = []
+    for path in attachment_paths:
+        abs_path = str(Path(path).resolve())
+        attachments.append(f"file://{abs_path}")
+    attachment_string = ','.join(attachments) if attachments else ''
 
+    # URL encode the body HTML
+    body_encoded = urllib.parse.quote(body_html)
+
+    # Build -compose parameter string
+    compose_params = [
+        "to=''",
+        f"subject='{subject}'",
+    ]
+    if attachment_string:
+        compose_params.append(f"attachment='{attachment_string}'")
+    compose_params.append(f"body='{body_encoded}'")
+    compose_params.append("format=html")
+    compose_string = ','.join(compose_params)
+    logger.debug("  compose_string length: %d", len(compose_string))
+    logger.debug("  compose_string preview: %s", compose_string[:300])
+
+    # Check command line length
+    if len(compose_string) > MAX_COMMAND_LENGTH:
+        raise ValueError(
+            f"Too many files to attach ({len(attachment_paths)} files). "
+            f"Please file in smaller batches or attach manually."
+        )
+
+    # Launch email client
     try:
+        client_str = str(client_path)
         if client_str.startswith("flatpak::"):
-            # ---------------------------------------------------------
-            # Flatpak path: --file-forwarding + mailto: URI
-            # The XDG document portal exports files into the sandbox so
-            # Betterbird/Thunderbird can actually read them.
-            # ---------------------------------------------------------
+            # Flatpak app — use 'flatpak run --filesystem=home' so
+            # the sandboxed app can read attachments under $HOME
             app_id = client_str.split("::", 1)[1]
-
-            # Build mailto: query parameters
-            mailto_params = [
-                f'subject={urllib.parse.quote(subject)}',
-            ]
-
-            # mailto: only supports plain-text bodies
-            body_text = _strip_html(body_html)
-            if body_text:
-                mailto_params.append(
-                    f'body={urllib.parse.quote(body_text, safe="")}'
-                )
-
-            # Attachment file:// URIs — paths must be %-encoded so
-            # Flatpak's file-forwarding parser can find URI boundaries
-            for path in attachment_paths:
-                abs_path = str(Path(path).resolve())
-                encoded = urllib.parse.quote(abs_path, safe='/')
-                mailto_params.append(f'attachment=file://{encoded}')
-
-            mailto_uri = 'mailto:?' + '&'.join(mailto_params)
-
             cmd = [
-                'flatpak', 'run', '--file-forwarding',
-                app_id,
-                '@@u', mailto_uri, '@@',
+                "flatpak", "run", "--filesystem=home",
+                app_id, "-compose", compose_string,
             ]
-            logger.info("  Launching via flatpak --file-forwarding: %s",
+            logger.info("  Launching via flatpak run --filesystem=home: %s",
                          app_id)
-            logger.debug("  mailto URI length: %d", len(mailto_uri))
-            logger.debug("  mailto URI preview: %s", mailto_uri[:300])
         else:
-            # ---------------------------------------------------------
-            # Native path: -compose parameter
-            # ---------------------------------------------------------
-            # Build attachment string with raw file:// URIs (no %20 —
-            # native Betterbird/Thunderbird expects literal spaces)
-            attachments = []
-            for path in attachment_paths:
-                abs_path = str(Path(path).resolve())
-                attachments.append(f"file://{abs_path}")
-            attachment_string = ','.join(attachments) if attachments else ''
-
-            body_encoded = urllib.parse.quote(body_html)
-
-            compose_params = [
-                "to=''",
-                f"subject='{subject}'",
-            ]
-            if attachment_string:
-                compose_params.append(f"attachment='{attachment_string}'")
-            compose_params.append(f"body='{body_encoded}'")
-            compose_params.append("format=html")
-            compose_string = ','.join(compose_params)
-            logger.debug("  compose_string length: %d", len(compose_string))
-            logger.debug("  compose_string preview: %s",
-                          compose_string[:300])
-
-            if len(compose_string) > MAX_COMMAND_LENGTH:
-                raise ValueError(
-                    f"Too many files to attach "
-                    f"({len(attachment_paths)} files). "
-                    f"Please file in smaller batches or attach manually."
-                )
-
             cmd = [client_str, "-compose", compose_string]
             logger.info("  Launching directly: %s -compose ...", client_str)
 
