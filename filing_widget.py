@@ -2621,19 +2621,25 @@ class FilingWidget(QMainWindow):
 
     def _launch_email_after_filing(self, dest_folder, project_path, contact, desc):
         """Launch email client with filed documents as attachments after filing."""
+        import logging
+        log = logging.getLogger('fileuzi.services.email_composer')
+        log.info("_launch_email_after_filing: dest=%s project=%s", dest_folder, project_path)
         try:
             # Get email client path
             client_path = get_email_client_path(self.db_path)
+            log.info("  client_path resolved to: %s", client_path)
 
             # Generate subject from project folder name and description
             project_folder_name = project_path.name
             subject = generate_email_subject(project_folder_name, desc)
+            log.info("  subject: %s", subject)
 
             # Load email signature
             try:
                 signature_html = load_email_signature(self.projects_root)
             except FileNotFoundError:
                 signature_html = ""
+                log.info("  No email signature file found, using empty")
 
             # Generate email body
             body_html = generate_email_body(contact, signature_html)
@@ -2646,26 +2652,37 @@ class FilingWidget(QMainWindow):
                     if item.is_file():
                         attachment_paths.append(item)
 
+            log.info("  attachments found: %d", len(attachment_paths))
             if not attachment_paths:
-                return  # Nothing to attach
+                log.warning("  No attachments found in %s — skipping email", dest_folder)
+                return
 
             # Launch email client
             launch_email_compose(subject, attachment_paths, body_html, client_path)
 
         except FileNotFoundError as e:
+            log.error("  FileNotFoundError: %s", e)
             QMessageBox.warning(
                 self, "Email Client Not Found",
                 str(e)
             )
         except ValueError as e:
+            log.error("  ValueError: %s", e)
             QMessageBox.warning(
                 self, "Email Error",
                 str(e)
             )
         except RuntimeError as e:
+            log.error("  RuntimeError: %s", e)
             QMessageBox.warning(
                 self, "Email Error",
                 str(e)
+            )
+        except Exception as e:
+            log.error("  Unexpected error: %s", e, exc_info=True)
+            QMessageBox.warning(
+                self, "Email Error",
+                f"Unexpected error launching email:\n\n{e}"
             )
 
     def _on_print_pdf_toggled(self, checked):
@@ -2857,6 +2874,8 @@ class FilingWidget(QMainWindow):
 
 
 def main():
+    import logging as _logging
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Jaike_CRM Filing Widget')
     parser.add_argument(
@@ -2864,7 +2883,28 @@ def main():
         type=str,
         help='File to preload into the widget'
     )
+    parser.add_argument(
+        '--debug-email',
+        action='store_true',
+        help='Enable debug logging for email client detection and launch'
+    )
     args, qt_args = parser.parse_known_args()
+
+    # Set up logging
+    if args.debug_email:
+        _logging.basicConfig(
+            level=_logging.DEBUG,
+            format='%(asctime)s %(name)s %(levelname)s: %(message)s',
+            datefmt='%H:%M:%S',
+        )
+        _logging.getLogger('fileuzi.services.email_composer').setLevel(_logging.DEBUG)
+    else:
+        # Default: email INFO to stderr so detection results are visible
+        _logging.basicConfig(
+            level=_logging.WARNING,
+            format='%(name)s %(levelname)s: %(message)s',
+        )
+        _logging.getLogger('fileuzi.services.email_composer').setLevel(_logging.INFO)
 
     # Qt needs sys.argv-like list
     app = QApplication([sys.argv[0]] + qt_args)

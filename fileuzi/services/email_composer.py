@@ -5,6 +5,7 @@ Generates email subjects, bodies, signatures and launches email clients
 (Betterbird/Thunderbird) with pre-populated composition windows.
 """
 
+import logging
 import os
 import platform
 import shutil
@@ -15,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 
 from fileuzi.config import FILING_WIDGET_TOOLS_FOLDER
+
+logger = logging.getLogger(__name__)
 
 # Maximum attachment size for email (25MB)
 MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024
@@ -355,9 +358,14 @@ class EmailClientDetector:
 
     def _search_client(self, client_name, meta):
         """Run the full search strategy for a single client."""
+        logger.debug("Searching for %s (OS: %s, distro: %s, pm: %s)",
+                      client_name, self.os_info['system'],
+                      self.os_info.get('distro'), self.os_info.get('package_manager'))
+
         # 1. PATH lookup
         for exe_name in meta['exe_names']:
             found = shutil.which(exe_name)
+            logger.debug("  PATH lookup '%s': %s", exe_name, found or "not found")
             if found:
                 return {
                     'client': client_name,
@@ -514,10 +522,12 @@ class EmailClientDetector:
             self._home / f".local/share/flatpak/exports/bin/{flatpak_id}",
         ]
         for fp in flatpak_export_paths:
-            if fp.exists():
+            exists = fp.exists()
+            logger.debug("  Flatpak wrapper %s: %s", fp, "FOUND" if exists else "not found")
+            if exists:
                 return {
                     'client': client_name,
-                    'path': fp,
+                    'path': f"flatpak::{flatpak_id}",
                     'method': 'flatpak',
                 }
 
@@ -527,14 +537,15 @@ class EmailClientDetector:
                 ['flatpak', 'info', flatpak_id],
                 capture_output=True, timeout=5
             )
+            logger.debug("  flatpak info %s: returncode=%d", flatpak_id, result.returncode)
             if result.returncode == 0:
                 return {
                     'client': client_name,
-                    'path': Path(f"flatpak::{flatpak_id}"),
+                    'path': f"flatpak::{flatpak_id}",
                     'method': 'flatpak',
                 }
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            logger.debug("  flatpak info failed: %s", e)
 
         return None
 
@@ -731,30 +742,43 @@ def get_email_client_path(db_path):
         db_path: Path to filing_widget.db
 
     Returns:
-        Path to email client executable
+        Path to email client executable (or 'flatpak::app.id' string)
 
     Raises:
         FileNotFoundError: If no email client available
     """
+    logger.info("get_email_client_path: checking db at %s", db_path)
+
     # Try saved preference
     config = load_email_client_preference(db_path)
     if config:
         saved_path = config['client_path']
+        logger.info("  Saved preference: %s (method=%s)",
+                     saved_path, config.get('detection_method'))
         # Flatpak sentinel paths aren't real files - check differently
         if str(saved_path).startswith("flatpak::"):
-            return saved_path
+            logger.info("  Using saved Flatpak path: %s", saved_path)
+            return str(saved_path)
         if saved_path.exists():
+            logger.info("  Saved path verified on disk")
             return saved_path
+        logger.warning("  Saved path no longer exists, re-detecting")
+    else:
+        logger.info("  No saved preference, detecting fresh")
 
     # Re-detect using full OS-aware detection
     detector = EmailClientDetector()
     result = detector.find_email_client(preferred='betterbird')
 
     if not result:
+        logger.error("  No email client found anywhere")
         raise FileNotFoundError(
             "No email client found. "
             "Please install Betterbird or Thunderbird."
         )
+
+    logger.info("  Detected: %s at %s (method=%s)",
+                 result['client'], result['path'], result['method'])
 
     save_email_client_preference(
         db_path,
@@ -778,14 +802,14 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
         subject: Formatted email subject line
         attachment_paths: List of Path objects to filed documents
         body_html: Complete HTML email body
-        client_path: Path to email client executable
+        client_path: Path to email client executable (or 'flatpak::app.id')
 
     Raises:
         FileNotFoundError: If email client not found at specified path
         ValueError: If attachments too large or command too long
         RuntimeError: If email client fails to launch
     """
-    client_path = Path(client_path)
+    logger.info("launch_email_compose called: client_path=%s", client_path)
 
     # Validate attachments size
     total_size = 0
@@ -793,6 +817,9 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
         p = Path(path)
         if p.exists():
             total_size += p.stat().st_size
+            logger.debug("  attachment: %s (%d bytes)", p, p.stat().st_size)
+        else:
+            logger.warning("  attachment NOT FOUND: %s", p)
 
     if total_size > MAX_ATTACHMENT_SIZE:
         total_mb = total_size / (1024 * 1024)
@@ -823,6 +850,7 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
         "format=html",
     ]
     compose_string = ','.join(compose_params)
+    logger.debug("  compose_string length: %d", len(compose_string))
 
     # Check command line length
     if len(compose_string) > MAX_COMMAND_LENGTH:
@@ -837,16 +865,25 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
         if client_str.startswith("flatpak::"):
             # Flatpak app - launch via 'flatpak run'
             app_id = client_str.split("::", 1)[1]
-            subprocess.Popen(["flatpak", "run", app_id, '-compose', compose_string])
+            cmd = ["flatpak", "run", app_id, "-compose", compose_string]
+            logger.info("  Launching via flatpak run: flatpak run %s -compose ...", app_id)
         else:
-            subprocess.Popen([client_str, '-compose', compose_string])
+            cmd = [client_str, "-compose", compose_string]
+            logger.info("  Launching directly: %s -compose ...", client_str)
+
+        logger.debug("  Full command argv[0..1]: %s", cmd[:2])
+        subprocess.Popen(cmd)
+        logger.info("  Process launched successfully")
+
     except FileNotFoundError:
+        logger.error("  FileNotFoundError: %s", client_path)
         raise FileNotFoundError(
             f"Email client executable not found at: {client_path}\n\n"
             f"Please install Betterbird/Thunderbird or configure "
             f"the correct path."
         )
     except Exception as e:
+        logger.error("  Unexpected error: %s", e, exc_info=True)
         raise RuntimeError(f"Failed to launch email client: {e}")
 
 
