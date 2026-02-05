@@ -839,9 +839,13 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
 
     # Build attachment string with raw file:// URIs (no %20 encoding —
     # Betterbird/Thunderbird expects literal spaces in paths)
+    # Use absolute() instead of resolve() to preserve symlinks and match
+    # the actual filed paths (resolve() follows symlinks which may differ)
     attachments = []
     for path in attachment_paths:
-        p = Path(path).resolve()
+        p = Path(path)
+        if not p.is_absolute():
+            p = p.absolute()
         abs_path = str(p)
         # Guard against double leading slashes (would create file:////)
         if abs_path.startswith('//'):
@@ -850,7 +854,7 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
         if not p.is_file():
             logger.warning("  SKIPPING missing attachment: %s", abs_path)
             continue
-        logger.debug("  attachment URI: file://%s (exists=True)", abs_path)
+        logger.info("  Verified attachment exists: %s", abs_path)
         attachments.append(f"file://{abs_path}")
     attachment_string = ','.join(attachments) if attachments else ''
 
@@ -886,25 +890,39 @@ def launch_email_compose(subject, attachment_paths, body_html, client_path):
             app_id = client_str.split("::", 1)[1]
 
             # Build --filesystem args for each attachment's parent directory
+            # Use the path as given (not resolve()) to match what was filed
             fs_args = []
             if attachment_paths:
                 parent_dirs = set()
                 for path in attachment_paths:
-                    parent_dirs.add(str(Path(path).resolve().parent))
+                    p = Path(path)
+                    # Use absolute path without resolve() - this preserves
+                    # symlinks and matches the actual filed location
+                    if not p.is_absolute():
+                        p = p.absolute()
+                    parent = str(p.parent)
+                    parent_dirs.add(parent)
+                    logger.debug("  Attachment path: %s", path)
+                    logger.debug("  Parent dir for grant: %s", parent)
                 for parent in parent_dirs:
                     fs_args.append(f"--filesystem={parent}")
-                    logger.debug("  Granting Flatpak access to: %s", parent)
+                    logger.info("  Flatpak --filesystem=%s", parent)
 
             cmd = ["flatpak", "run"] + fs_args + [
                 app_id, "-compose", compose_string,
             ]
-            logger.info("  Launching via flatpak run --filesystem=home: %s",
-                         app_id)
+            logger.info("  Launching via flatpak run with %d filesystem grants: %s",
+                         len(fs_args), app_id)
         else:
             cmd = [client_str, "-compose", compose_string]
             logger.info("  Launching directly: %s -compose ...", client_str)
 
-        logger.debug("  Full command argv[0..3]: %s", cmd[:4])
+        # Log full command for debugging (compose string may be truncated)
+        cmd_preview = cmd[:5] if len(cmd) > 5 else cmd
+        logger.debug("  Command prefix: %s", cmd_preview)
+        if client_str.startswith("flatpak::"):
+            logger.info("  Total command args: %d (flatpak + %d fs grants + app + compose)",
+                         len(cmd), len(fs_args))
         subprocess.Popen(cmd)
         logger.info("  Process launched successfully")
 
