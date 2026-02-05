@@ -1033,7 +1033,7 @@ class TestLaunchEmailCompose:
 
     @patch('fileuzi.services.email_composer.subprocess.Popen')
     def test_flatpak_launch(self, mock_popen, tmp_path):
-        """Flatpak clients launched via 'flatpak run --filesystem=home'."""
+        """Flatpak clients use --file-forwarding with @@ around compose."""
         att = tmp_path / "file.pdf"
         att.write_bytes(b"content")
 
@@ -1046,14 +1046,16 @@ class TestLaunchEmailCompose:
         args = mock_popen.call_args[0][0]
         assert args[0] == "flatpak"
         assert args[1] == "run"
-        assert args[2] == "--filesystem=home"
+        assert args[2] == "--file-forwarding"
         assert args[3] == "eu.betterbird.Betterbird"
         assert args[4] == "-compose"
+        assert args[5] == "@@"
         # Compose string should contain subject and file:// attachment
-        compose = args[5]
+        compose = args[6]
         assert "subject='Subject'" in compose
         assert "file://" in compose
         assert "file.pdf" in compose
+        assert args[7] == "@@"
 
 
 # ============================================================================
