@@ -116,6 +116,14 @@ from fileuzi.ui import (
 )
 
 from fileuzi.services.filing_operations import replace_with_supersede
+from fileuzi.services.email_composer import (
+    generate_email_subject,
+    generate_email_body,
+    load_email_signature,
+    get_email_client_path,
+    launch_email_compose,
+    detect_superseding_candidates,
+)
 
 
 class FilingWidget(QMainWindow):
@@ -635,6 +643,22 @@ class FilingWidget(QMainWindow):
         toggles_layout.addWidget(self.print_pdf_toggle)
         self.pdf_placeholder_widget = None  # Track PDF placeholder in attachments
 
+        # Create Email toggle (only visible for non-.eml exports)
+        self.create_email_toggle = QCheckBox("Create Email")
+        self.create_email_toggle.setStyleSheet(f"""
+            QCheckBox {{
+                color: {COLORS['text']};
+                font-size: 12px;
+                spacing: 6px;
+            }}
+            QCheckBox:disabled {{
+                color: {COLORS['text_secondary']};
+            }}
+        """)
+        self.create_email_toggle.setChecked(False)
+        self.create_email_toggle.setVisible(False)
+        toggles_layout.addWidget(self.create_email_toggle)
+
         toggles_layout.addStretch()
         email_layout.addLayout(toggles_layout)
 
@@ -836,6 +860,7 @@ class FilingWidget(QMainWindow):
         else:
             self.contact_label.setText("Recipient")
             self.contact_input.setPlaceholderText("Enter recipient name...")
+        self._update_create_email_visibility()
         self.update_preview()
 
     def toggle_excluded_attachments(self):
@@ -1337,6 +1362,10 @@ class FilingWidget(QMainWindow):
         if has_qualifying_images:
             self.print_pdf_toggle.setChecked(True)  # Default ON when visible
 
+        # Hide Create Email toggle for .eml files
+        self.create_email_toggle.setVisible(False)
+        self.create_email_toggle.setChecked(False)
+
         # Clear existing attachment checkboxes
         self.attachment_checkboxes = []
         while self.attachments_layout.count():
@@ -1576,6 +1605,9 @@ class FilingWidget(QMainWindow):
         if has_drawings:
             self.export_radio.setChecked(True)
 
+        # Update Create Email toggle visibility
+        self._update_create_email_visibility()
+
         self.update_preview()
 
     def auto_select_project_from_path(self, file_path):
@@ -1793,6 +1825,40 @@ class FilingWidget(QMainWindow):
                 if not ok:
                     return  # User cancelled
                 keystage_confirmed_name = confirmed_name.strip() if confirmed_name else default_name
+
+        # Superseding confirmation: check BEFORE filing if any drawings will be superseded
+        superseding_files = []
+        if not self.email_data:
+            for file_widget, file_path in self.file_widgets:
+                if file_widget.isChecked():
+                    secondary_dests = file_widget.get_secondary_destinations()
+                    for rule in secondary_dests:
+                        secondary_path = self._resolve_secondary_path(project_path, rule)
+                        if secondary_path and is_current_drawings_folder(secondary_path):
+                            candidates = detect_superseding_candidates(
+                                file_path, secondary_path
+                            )
+                            if candidates:
+                                superseding_files.extend(candidates)
+
+        if superseding_files:
+            msg = (
+                f"The following {len(superseding_files)} drawing(s) will be "
+                f"superseded and moved to Superseded/:\n\n"
+            )
+            for name in superseding_files:
+                msg += f"  - {name}\n"
+            msg += "\nDo you want to proceed?"
+
+            reply = QMessageBox.question(
+                self,
+                "Superseding Confirmation",
+                msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
 
         try:
             # Pre-calculate expected files per destination for circuit breaker
@@ -2140,6 +2206,14 @@ class FilingWidget(QMainWindow):
             # Show success dialog with clickable link
             dialog = SuccessDialog(self, success_msg, dest_folder)
             dialog.exec()
+
+            # Launch email composition if Create Email toggle is checked
+            if (hasattr(self, 'create_email_toggle') and
+                self.create_email_toggle.isVisible() and
+                self.create_email_toggle.isChecked()):
+                self._launch_email_after_filing(
+                    dest_folder, project_path, contact, desc
+                )
 
             self.reset_form()
 
@@ -2513,6 +2587,63 @@ class FilingWidget(QMainWindow):
         else:
             logger.info("KEYSTAGE TOGGLE | Disabled")
 
+    def _update_create_email_visibility(self):
+        """Show/hide Create Email toggle based on direction and file type."""
+        is_export = self.export_radio.isChecked()
+        is_regular_files = not self.email_data and bool(self.file_widgets)
+        self.create_email_toggle.setVisible(is_export and is_regular_files)
+        if not (is_export and is_regular_files):
+            self.create_email_toggle.setChecked(False)
+
+    def _launch_email_after_filing(self, dest_folder, project_path, contact, desc):
+        """Launch email client with filed documents as attachments after filing."""
+        try:
+            # Get email client path
+            client_path = get_email_client_path(self.db_path)
+
+            # Generate subject from project folder name and description
+            project_folder_name = project_path.name
+            subject = generate_email_subject(project_folder_name, desc)
+
+            # Load email signature
+            try:
+                signature_html = load_email_signature(self.projects_root)
+            except FileNotFoundError:
+                signature_html = ""
+
+            # Generate email body
+            body_html = generate_email_body(contact, signature_html)
+
+            # Collect filed attachment paths from destination folder
+            attachment_paths = []
+            dest_folder = Path(dest_folder)
+            if dest_folder.exists():
+                for item in sorted(dest_folder.iterdir()):
+                    if item.is_file():
+                        attachment_paths.append(item)
+
+            if not attachment_paths:
+                return  # Nothing to attach
+
+            # Launch email client
+            launch_email_compose(subject, attachment_paths, body_html, client_path)
+
+        except FileNotFoundError as e:
+            QMessageBox.warning(
+                self, "Email Client Not Found",
+                str(e)
+            )
+        except ValueError as e:
+            QMessageBox.warning(
+                self, "Email Error",
+                str(e)
+            )
+        except RuntimeError as e:
+            QMessageBox.warning(
+                self, "Email Error",
+                str(e)
+            )
+
     def _on_print_pdf_toggled(self, checked):
         """Handle Print Email to PDF toggle state change - add/remove PDF placeholder in attachments."""
         if not self.email_data:
@@ -2616,6 +2747,11 @@ class FilingWidget(QMainWindow):
             self.print_pdf_toggle.setVisible(False)
             self.print_pdf_toggle.setChecked(True)  # Reset to default ON for next email
         self.pdf_placeholder_widget = None
+
+        # Reset and hide Create Email toggle
+        if hasattr(self, 'create_email_toggle'):
+            self.create_email_toggle.setVisible(False)
+            self.create_email_toggle.setChecked(False)
         self.file_widgets = []
         self.subject_word_labels = []
 
