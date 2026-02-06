@@ -915,13 +915,21 @@ class TestGetEmailClientPath:
         assert config['client_name'] == 'thunderbird'
         assert config['detection_method'] == 'filesystem'
 
-    def test_returns_saved_flatpak_preference(self, db_path):
-        """Saved flatpak sentinel path is returned without filesystem check."""
+    @patch('fileuzi.services.email_composer.subprocess.run')
+    def test_returns_saved_flatpak_preference(self, mock_run, db_path):
+        """Saved flatpak sentinel path is returned if app still installed."""
+        # Mock flatpak info returning success (app is installed)
+        mock_run.return_value = MagicMock(returncode=0)
+
         save_email_client_preference(
             db_path, 'betterbird', 'flatpak::eu.betterbird.Betterbird'
         )
         result = get_email_client_path(db_path)
         assert str(result) == "flatpak::eu.betterbird.Betterbird"
+        # Verify flatpak info was called to check installation
+        mock_run.assert_called_once()
+        assert 'flatpak' in mock_run.call_args[0][0]
+        assert 'info' in mock_run.call_args[0][0]
 
 
 # ============================================================================

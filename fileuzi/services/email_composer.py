@@ -754,10 +754,22 @@ def get_email_client_path(db_path):
         saved_path = config['client_path']
         logger.info("  Saved preference: %s (method=%s)",
                      saved_path, config.get('detection_method'))
-        # Flatpak sentinel paths aren't real files - check differently
+        # Flatpak sentinel paths aren't real files - verify app is installed
         if str(saved_path).startswith("flatpak::"):
-            logger.info("  Using saved Flatpak path: %s", saved_path)
-            return str(saved_path)
+            app_id = str(saved_path).split("::", 1)[1]
+            # Check if Flatpak app is still installed
+            try:
+                result = subprocess.run(
+                    ['flatpak', 'info', app_id],
+                    capture_output=True, timeout=5
+                )
+                if result.returncode == 0:
+                    logger.info("  Flatpak app verified: %s", app_id)
+                    return str(saved_path)
+                else:
+                    logger.warning("  Flatpak app no longer installed: %s, re-detecting", app_id)
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                logger.warning("  Flatpak not available, re-detecting")
         # Stale old-format flatpak export wrapper path — re-detect
         if '/flatpak/exports/bin/' in str(saved_path):
             logger.info("  Stale flatpak export wrapper path, re-detecting")
