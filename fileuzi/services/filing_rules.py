@@ -179,7 +179,12 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
 
         # Check each keyword
         for keyword in rule['keywords']:
-            keyword_lower = keyword.lower()
+            keyword_lower = keyword.lower().strip()
+
+            # Skip empty or too-short keywords (must be at least 2 chars)
+            if len(keyword_lower) < 2:
+                continue
+
             keyword_words = keyword_lower.split()
 
             # Exact phrase match (highest confidence)
