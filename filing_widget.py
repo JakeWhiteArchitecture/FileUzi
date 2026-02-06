@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QFrame, QMessageBox, QComboBox, QCheckBox,
     QScrollArea, QSizePolicy, QCompleter, QMenu, QDialog
 )
-from PyQt6.QtCore import Qt, QStringListModel
+from PyQt6.QtCore import Qt, QStringListModel, QEvent
 from PyQt6.QtGui import QFont, QPixmap
 
 # Import configuration from fileuzi package
@@ -740,6 +740,9 @@ class FilingWidget(QMainWindow):
         self.contact_completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.contact_input.setCompleter(self.contact_completer)
 
+        # Install event filter to handle Down arrow showing all completions
+        self.contact_input.installEventFilter(self)
+
         form_layout.addWidget(self.contact_input)
 
         # Description
@@ -871,7 +874,15 @@ class FilingWidget(QMainWindow):
             db_contacts = get_contacts_from_database(self.db_path, self.job_number)
             contacts.update(db_contacts)
 
-        self.previous_contacts = sorted(list(contacts))
+        # Normalize to uppercase and filter out invalid entries like 'sender'/'recipient'
+        invalid_entries = {'sender', 'recipient'}
+        normalized_contacts = set()
+        for contact in contacts:
+            upper_contact = contact.upper()
+            if upper_contact.lower() not in invalid_entries:
+                normalized_contacts.add(upper_contact)
+
+        self.previous_contacts = sorted(list(normalized_contacts))
 
         # Update completer with combined contacts for auto-complete
         model = QStringListModel(self.previous_contacts)
@@ -1743,6 +1754,28 @@ class FilingWidget(QMainWindow):
         folder_name = f"{self.job_number}_{direction}_{date_str}_{contact}_{desc}"
         self.preview_label.setText(folder_name)
 
+    def eventFilter(self, obj, event):
+        """Handle events for contact input field."""
+        if obj == self.contact_input and event.type() == QEvent.Type.KeyPress:
+            from PyQt6.QtCore import Qt as QtCore_Qt
+            key = event.key()
+
+            # Down arrow: show all completions if popup not visible
+            if key == QtCore_Qt.Key.Key_Down:
+                if not self.contact_completer.popup().isVisible():
+                    # Show all completions
+                    self.contact_completer.setCompletionPrefix("")
+                    self.contact_completer.complete()
+                    return True
+
+            # Enter key: don't file if completer popup is visible
+            if key in (QtCore_Qt.Key.Key_Return, QtCore_Qt.Key.Key_Enter):
+                if self.contact_completer.popup().isVisible():
+                    # Let the completer handle the selection
+                    return False
+
+        return super().eventFilter(obj, event)
+
     def file_documents(self):
         """Create folder and move files, including secondary filing destinations."""
         if not self.job_number:
@@ -2313,7 +2346,7 @@ class FilingWidget(QMainWindow):
                 'has_attachments': 1 if selected_attachments else 0,
                 'attachment_names': attachment_names,
                 'source_path': self.email_source_path,
-                'contact_name': contact,  # User-entered contact at time of filing
+                'contact_name': contact.upper(),  # Normalize to uppercase for consistency
                 'job_number': self.job_number,
             }
 
@@ -2363,7 +2396,7 @@ class FilingWidget(QMainWindow):
                 'has_attachments': 0,
                 'attachment_names': None,
                 'source_path': None,
-                'contact_name': contact,
+                'contact_name': contact.upper(),
                 'job_number': self.job_number,
             }
 
