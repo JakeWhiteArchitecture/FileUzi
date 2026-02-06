@@ -187,33 +187,38 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
 
             keyword_words = keyword_lower.split()
 
-            # Exact phrase match (highest confidence)
-            if keyword_lower in name_without_ext:
-                confidence = 1.0
-                if confidence > best_confidence:
-                    best_confidence = confidence
-                    matched_keyword = keyword
-                continue
-
-            # Word-by-word match for multi-word keywords
+            # Multi-word phrase: check if phrase appears with word boundaries
             if len(keyword_words) > 1:
-                all_words_found = all(w in filename_words for w in keyword_words)
-                if all_words_found:
+                # Use regex to match phrase with word boundaries
+                pattern = r'\b' + re.escape(keyword_lower) + r'\b'
+                if re.search(pattern, name_without_ext):
+                    confidence = 1.0
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        matched_keyword = keyword
+                    continue
+
+                # Also try word-by-word match (words can be separated)
+                all_words_found = all(w in filename_words for w in keyword_words if len(w) >= 2)
+                if all_words_found and len([w for w in keyword_words if len(w) >= 2]) > 0:
                     confidence = 0.95
                     if confidence > best_confidence:
                         best_confidence = confidence
                         matched_keyword = keyword
                     continue
 
-            # Single word exact match
-            if keyword_lower in filename_words:
-                confidence = 0.9
-                if confidence > best_confidence:
-                    best_confidence = confidence
-                    matched_keyword = keyword
-                continue
+            # Single word: must match as whole word, not substring
+            # Use regex word boundary to prevent "OS" matching inside "propOSed"
+            else:
+                pattern = r'\b' + re.escape(keyword_lower) + r'\b'
+                if re.search(pattern, name_without_ext):
+                    confidence = 1.0 if len(keyword_lower) >= 4 else 0.9
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        matched_keyword = keyword
+                    continue
 
-            # Acronym match
+            # Acronym match (for words like "BS5837" matching "bs 5837")
             keyword_no_seps = keyword_lower.replace(' ', '').replace('-', '').replace('_', '')
             if len(keyword_no_seps) >= 3 and keyword_no_seps in filename_words:
                 confidence = 0.95
