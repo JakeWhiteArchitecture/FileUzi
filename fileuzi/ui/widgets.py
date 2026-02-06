@@ -230,7 +230,7 @@ class AttachmentWidget(QWidget):
     """Custom widget for an email attachment with checkbox and clickable filename."""
 
     def __init__(self, filename, size_str, attachment_data, parent_widget, is_excluded=False,
-                 matched_rules=None, is_drawing=False, file_path=None):
+                 matched_rules=None, is_drawing=False, file_path=None, from_current_drawings=False):
         super().__init__()
         self.filename = filename
         self.size_str = size_str
@@ -246,6 +246,9 @@ class AttachmentWidget(QWidget):
         self.is_drawing = is_drawing
         self.secondary_filing_enabled = is_drawing  # Auto-enable for drawings
         self.filing_chips = []
+
+        # Track if file came from Current Drawings folder (skip secondary filing to same)
+        self.from_current_drawings = from_current_drawings
 
         self.setup_ui()
 

@@ -1542,16 +1542,14 @@ class FilingWidget(QMainWindow):
         self.update_preview()
 
     def handle_regular_files(self, files):
-        """Handle regular (non-email) files with secondary filing support."""
-        # Clear existing file widgets
-        self.file_widgets = []
-        while self.files_container_layout.count():
-            child = self.files_container_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        """Handle regular (non-email) files with secondary filing support.
 
-        # Update header label
-        self.files_label.setText(f"Files ({len(files)}):")
+        Supports multiple drag-and-drop batches - new files are appended to existing list.
+        Detects files from Current Drawings folders and marks them to skip secondary filing
+        back to Current Drawings (to avoid overwriting themselves).
+        """
+        # Get existing filenames to avoid duplicates when appending
+        existing_filenames = {Path(fp).name for _, fp in self.file_widgets}
 
         # Try to detect job number from file path FIRST, before processing files
         # This ensures drawing detection uses the correct job number
@@ -1566,13 +1564,20 @@ class FilingWidget(QMainWindow):
         # Get job number for drawing detection (now should be set from path detection)
         job_for_drawing = self.job_number or self.last_job_number or ''
 
-        # Track if any JWA drawings detected
-        has_drawings = False
+        # Track if any JWA drawings detected (in this batch or existing)
+        has_drawings = any(w.is_drawing for w, _ in self.file_widgets)
+
+        # Count new files added
+        new_files_added = 0
 
         # Create AttachmentWidget for each file
         for file_path in files:
             src = Path(file_path)
             filename = src.name
+
+            # Skip if this filename already exists in the list
+            if filename in existing_filenames:
+                continue
 
             # Get file size
             try:
@@ -1587,6 +1592,9 @@ class FilingWidget(QMainWindow):
             is_drawing = is_drawing_pdf(filename, job_for_drawing, self.project_mapping)
             if is_drawing:
                 has_drawings = True
+
+            # Check if file is coming from a Current Drawings folder
+            from_current_drawings = is_current_drawings_folder(src.parent)
 
             # Match filing rules using cascade (filename -> PDF metadata -> PDF content)
             # For dropped files, read PDF content from file if it's a PDF
@@ -1614,11 +1622,18 @@ class FilingWidget(QMainWindow):
                 is_excluded=False,
                 matched_rules=matched_rules,
                 is_drawing=is_drawing,
-                file_path=str(src)  # Store full path for copying
+                file_path=str(src),  # Store full path for copying
+                from_current_drawings=from_current_drawings
             )
 
             self.files_container_layout.addWidget(file_widget)
             self.file_widgets.append((file_widget, str(src)))
+            existing_filenames.add(filename)
+            new_files_added += 1
+
+        # Update header label with total count
+        total_files = len(self.file_widgets)
+        self.files_label.setText(f"Files ({total_files}):")
 
         # Show files frame, hide email frame
         self.files_frame.setVisible(True)
@@ -2110,6 +2125,11 @@ class FilingWidget(QMainWindow):
                             for rule in secondary_dests:
                                 secondary_path = self._resolve_secondary_path(project_path, rule)
                                 if secondary_path:
+                                    # Skip filing to Current Drawings if file came from there
+                                    # (to avoid overwriting itself unnecessarily)
+                                    if file_widget.from_current_drawings and is_current_drawings_folder(secondary_path):
+                                        continue
+
                                     sec_dst = secondary_path / final_filename
                                     if safe_copy(src, sec_dst, self.projects_root):
                                         secondary_copies += 1
