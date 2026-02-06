@@ -1944,6 +1944,7 @@ class FilingWidget(QMainWindow):
 
             if self.email_data:
                 # Save selected email attachments
+                # (No duplicate check - email duplicate dialog already handles this)
                 for att_widget, att in self.attachment_checkboxes:
                     if att_widget.isChecked():
                         # Skip PDF placeholder - it's handled separately below
@@ -1952,39 +1953,9 @@ class FilingWidget(QMainWindow):
 
                         filename = att['filename']
 
-                        # Check for duplicates in project
-                        action, final_filename, replace_target = self._check_file_duplicate(
-                            project_path, filename, dest_folder
-                        )
-
-                        if action == 'skip':
-                            continue  # Skip this file
-
-                        if action == 'replace' and replace_target:
-                            try:
-                                superseded = replace_with_supersede(
-                                    old_path=replace_target,
-                                    project_root=self.projects_root,
-                                    new_file_content=att['data'],
-                                )
-                                if superseded:
-                                    supersede_messages.append(
-                                        f"Old version backed up to: {superseded}"
-                                    )
-                                copied_count += 1
-                                filed_paths.append(replace_target)
-                                continue
-                            except (ValueError, OSError) as e:
-                                QMessageBox.warning(
-                                    self, "Replace Failed",
-                                    f"Replace operation failed: {e}\n"
-                                    f"Original file has been preserved."
-                                )
-                                continue
-
                         # Primary filing to IMPORTS-EXPORTS
-                        dst = dest_folder / final_filename
-                        if safe_write_attachment(dst, att['data'], self.projects_root, final_filename):
+                        dst = dest_folder / filename
+                        if safe_write_attachment(dst, att['data'], self.projects_root, filename):
                             copied_count += 1
                             filed_paths.append(dst)
 
@@ -2034,47 +2005,24 @@ class FilingWidget(QMainWindow):
                         self.projects_root
                     )
                     if pdf_data and pdf_filename:
-                        # Check for duplicates and get final filename
-                        action, final_pdf_filename, replace_target = self._check_file_duplicate(
-                            project_path, pdf_filename, dest_folder
-                        )
+                        # Primary filing to IMPORTS-EXPORTS
+                        # (No duplicate check - email duplicate dialog already handles this)
+                        pdf_dst = dest_folder / pdf_filename
+                        if safe_write_attachment(pdf_dst, pdf_data, self.projects_root, pdf_filename):
+                            copied_count += 1
 
-                        if action == 'replace' and replace_target:
-                            try:
-                                superseded = replace_with_supersede(
-                                    old_path=replace_target,
-                                    project_root=self.projects_root,
-                                    new_file_content=pdf_data,
-                                )
-                                if superseded:
-                                    supersede_messages.append(
-                                        f"Old version backed up to: {superseded}"
-                                    )
-                                copied_count += 1
-                            except (ValueError, OSError) as e:
-                                QMessageBox.warning(
-                                    self, "Replace Failed",
-                                    f"Replace operation failed: {e}\n"
-                                    f"Original file has been preserved."
-                                )
-                        elif action != 'skip':
-                            # Primary filing to IMPORTS-EXPORTS
-                            pdf_dst = dest_folder / final_pdf_filename
-                            if safe_write_attachment(pdf_dst, pdf_data, self.projects_root, final_pdf_filename):
-                                copied_count += 1
-
-                            # Secondary filing from PDF placeholder widget settings
-                            if self.pdf_placeholder_widget is not None:
-                                secondary_dests = self.pdf_placeholder_widget.get_secondary_destinations()
-                                for rule in secondary_dests:
-                                    secondary_path = self._resolve_secondary_path(project_path, rule)
-                                    if secondary_path:
-                                        sec_dst = secondary_path / final_pdf_filename
-                                        if safe_write_attachment(sec_dst, pdf_data, self.projects_root, final_pdf_filename):
-                                            secondary_copies += 1
-                                            folder_type = rule.get('folder_type', '')
-                                            if folder_type and folder_type not in actual_secondary_destinations:
-                                                actual_secondary_destinations.append(folder_type)
+                        # Secondary filing from PDF placeholder widget settings
+                        if self.pdf_placeholder_widget is not None:
+                            secondary_dests = self.pdf_placeholder_widget.get_secondary_destinations()
+                            for rule in secondary_dests:
+                                secondary_path = self._resolve_secondary_path(project_path, rule)
+                                if secondary_path:
+                                    sec_dst = secondary_path / pdf_filename
+                                    if safe_write_attachment(sec_dst, pdf_data, self.projects_root, pdf_filename):
+                                        secondary_copies += 1
+                                        folder_type = rule.get('folder_type', '')
+                                        if folder_type and folder_type not in actual_secondary_destinations:
+                                            actual_secondary_destinations.append(folder_type)
 
             else:
                 # Copy regular files with secondary filing support
