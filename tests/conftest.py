@@ -116,7 +116,7 @@ Drawing|Drawings,architectural dwg,/XXXX_CURRENT-DRAWINGS,Current Drawings,#f59e
 @pytest.fixture
 def project_mapping_csv(tools_folder):
     """Create a project mapping CSV."""
-    csv_path = tools_folder / "project_mapping.csv"
+    csv_path = tools_folder / "custom_project_number_mapping.csv"
     csv_content = """client_reference,jwa_job_number
 JB/2024/0847,2506
 ABC/2023/1234,2407
