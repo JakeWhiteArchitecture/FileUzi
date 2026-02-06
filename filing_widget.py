@@ -2439,24 +2439,9 @@ class FilingWidget(QMainWindow):
             same_location = [d for d in duplicates if Path(d).parent == dest_folder]
             diff_location = [d for d in duplicates if Path(d).parent != dest_folder]
 
-            # If all duplicates are at different locations, show different-location dialog
+            # If all duplicates are at different locations, just proceed
+            # (email duplicate detection handles most cases, no need for dialog)
             if diff_location and not same_location:
-                dialog = DifferentLocationDuplicateDialog(
-                    self, filename, diff_location[0],
-                    destination_folder, self.projects_root
-                )
-                result = dialog.exec()
-
-                if result != QDialog.DialogCode.Accepted:
-                    return ('skip', filename, None)
-
-                if dialog.result_action == 'skip':
-                    return ('skip', filename, None)
-                elif dialog.result_action == 'proceed':
-                    return ('proceed', filename, None)
-                elif dialog.result_action == 'replace':
-                    return ('replace', filename, dialog.replace_target)
-
                 return ('proceed', filename, None)
 
         # Same-location or mixed: show standard dialog
