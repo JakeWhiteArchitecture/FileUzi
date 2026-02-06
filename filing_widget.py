@@ -787,8 +787,8 @@ class FilingWidget(QMainWindow):
         self.contact_input.textChanged.connect(self.update_preview)
         self.desc_input.textChanged.connect(self.update_preview)
 
-        # Connect Enter key to file documents
-        self.contact_input.returnPressed.connect(self.file_documents)
+        # Connect Enter key to file documents (desc_input only - contact_input
+        # is handled in eventFilter to avoid filing when selecting from autocomplete)
         self.desc_input.returnPressed.connect(self.file_documents)
 
         layout.addLayout(form_layout)
@@ -1768,11 +1768,15 @@ class FilingWidget(QMainWindow):
                     self.contact_completer.complete()
                     return True
 
-            # Enter key: don't file if completer popup is visible
+            # Enter key: file documents only if completer popup is NOT visible
             if key in (QtCore_Qt.Key.Key_Return, QtCore_Qt.Key.Key_Enter):
                 if self.contact_completer.popup().isVisible():
                     # Let the completer handle the selection
                     return False
+                else:
+                    # No popup - proceed with filing
+                    self.file_documents()
+                    return True
 
         return super().eventFilter(obj, event)
 
