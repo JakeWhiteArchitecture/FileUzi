@@ -1453,6 +1453,7 @@ class FilingWidget(QMainWindow):
                 )
 
                 # Create custom attachment widget
+                # Drawings are assumed to be from Current Drawings (prevents re-filing there)
                 att_widget = AttachmentWidget(
                     filename=filename,
                     size_str=size_str,
@@ -1460,7 +1461,8 @@ class FilingWidget(QMainWindow):
                     parent_widget=self,
                     is_excluded=is_excluded,
                     matched_rules=matched_rules,
-                    is_drawing=is_drawing
+                    is_drawing=is_drawing,
+                    from_current_drawings=is_drawing
                 )
 
                 if is_excluded:
@@ -1606,8 +1608,9 @@ class FilingWidget(QMainWindow):
             if is_drawing:
                 has_drawings = True
 
-            # Check if file is coming from a Current Drawings folder
-            from_current_drawings = is_current_drawings_folder(src.parent)
+            # Check if file is coming from a Current Drawings folder OR is a drawing
+            # (drawings with custom prefixes like B-012 are assumed to be from Current Drawings)
+            from_current_drawings = is_current_drawings_folder(src.parent) or is_drawing
 
             # Match filing rules using cascade (filename -> PDF metadata -> PDF content)
             # For dropped files, read PDF content from file if it's a PDF
