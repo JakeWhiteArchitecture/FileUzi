@@ -44,6 +44,10 @@ def load_project_mapping(projects_root):
     Maps external project numbers (e.g., client's drawing numbers) to local job numbers.
     If the file doesn't exist, returns empty dict (tool continues working normally).
 
+    Supports various CSV header formats - looks for columns containing:
+    - Custom/client/external + project/reference/number for custom project numbers
+    - Local/jwa/internal + job/project/number for local job numbers
+
     Returns:
         dict: Mapping of custom_project_no -> local_job_no (e.g., {'B-012': '2505'})
     """
@@ -56,12 +60,41 @@ def load_project_mapping(projects_root):
     try:
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
+
+            # Find the right columns by checking headers flexibly
+            custom_col = None
+            local_col = None
+
+            if reader.fieldnames:
+                for col in reader.fieldnames:
+                    col_lower = col.lower().replace(':', '').replace('_', ' ').strip()
+
+                    # Look for custom/client/external project number column
+                    if custom_col is None:
+                        if any(kw in col_lower for kw in ['custom', 'client', 'external']):
+                            custom_col = col
+                        elif col_lower in ['reference', 'ref', 'project no', 'project number']:
+                            custom_col = col
+
+                    # Look for local/jwa/internal job number column
+                    if local_col is None:
+                        if any(kw in col_lower for kw in ['local', 'jwa', 'internal']):
+                            local_col = col
+                        elif col_lower in ['job no', 'job number', 'job']:
+                            local_col = col
+
+            # Fallback: if exactly 2 columns, assume first is custom, second is local
+            if (custom_col is None or local_col is None) and reader.fieldnames and len(reader.fieldnames) == 2:
+                custom_col = reader.fieldnames[0]
+                local_col = reader.fieldnames[1]
+
+            if not custom_col or not local_col:
+                print(f"Warning: Could not identify columns in project mapping CSV. Headers: {reader.fieldnames}")
+                return {}
+
             for row in reader:
-                # Support both header formats
-                custom_no = (row.get('Custom Project No:', '') or
-                             row.get('client_reference', '')).strip()
-                local_no = (row.get('Local Project No:', '') or
-                            row.get('jwa_job_number', '')).strip()
+                custom_no = row.get(custom_col, '').strip()
+                local_no = row.get(local_col, '').strip()
                 if custom_no and local_no:
                     # Store both original and uppercase for case-insensitive matching
                     mapping[custom_no] = local_no
