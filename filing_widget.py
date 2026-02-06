@@ -108,6 +108,7 @@ from fileuzi.ui import (
     FilingChip,
     AttachmentWidget,
     DropZone,
+    DroppableFilesFrame,
     SuccessDialog,
     DatabaseMissingDialog,
     DuplicateEmailDialog,
@@ -319,7 +320,8 @@ class FilingWidget(QMainWindow):
         layout.addWidget(self.drop_zone)
 
         # Files display (hidden until files dropped)
-        self.files_frame = QFrame()
+        # Uses DroppableFilesFrame to allow dropping additional files
+        self.files_frame = DroppableFilesFrame(self)
         self.files_frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {COLORS['bg']};

@@ -584,3 +584,26 @@ class DropZone(QFrame):
         )
         if files and self.parent_widget:
             self.parent_widget.on_files_dropped(files)
+
+
+class DroppableFilesFrame(QFrame):
+    """A frame that accepts file drops to add more files to the list."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_widget = parent
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent):
+        files = []
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if os.path.exists(file_path):
+                files.append(file_path)
+
+        if files and self.parent_widget:
+            self.parent_widget.on_files_dropped(files)
