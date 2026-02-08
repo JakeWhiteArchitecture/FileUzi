@@ -2006,8 +2006,8 @@ class FilingWidget(QMainWindow):
                         for rule in secondary_dests:
                             secondary_path = self._resolve_secondary_path(project_path, rule)
                             if secondary_path:
-                                sec_dst = secondary_path / final_filename
-                                if safe_write_attachment(sec_dst, att['data'], self.projects_root, final_filename):
+                                sec_dst = secondary_path / filename
+                                if safe_write_attachment(sec_dst, att['data'], self.projects_root, filename):
                                     secondary_copies += 1
                                     # Record ACTUAL destination where file was copied
                                     folder_type = rule.get('folder_type', '')
