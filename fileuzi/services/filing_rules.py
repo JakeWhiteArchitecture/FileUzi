@@ -201,6 +201,22 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
     filename_lower = filename.lower()
     # Remove extension for matching
     name_without_ext = filename_lower.rsplit('.', 1)[0] if '.' in filename_lower else filename_lower
+
+    # Special pattern detection for common file naming conventions
+    # Invoice pattern: INV followed by numbers (e.g., INV100, INV001, INV12345)
+    invoice_pattern = re.match(r'^inv\d+$', name_without_ext, re.IGNORECASE)
+    if invoice_pattern:
+        # Find the Invoices rule and return it with high confidence
+        for rule in rules:
+            if rule.get('folder_type', '').lower() == 'invoices':
+                return [{'rule': rule, 'confidence': 1.0}]
+
+    # Invoice detection via PDF metadata title (when title is "Invoice")
+    if name_without_ext.lower() == 'invoice' or filename_lower == 'invoice':
+        for rule in rules:
+            if rule.get('folder_type', '').lower() == 'invoices':
+                return [{'rule': rule, 'confidence': 1.0}]
+
     # Split into words for matching (only words 3+ chars)
     filename_words = set(w for w in re.findall(r'\b[\w\-]+\b', name_without_ext) if len(w) >= 3)
 
