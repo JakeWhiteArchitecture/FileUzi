@@ -658,6 +658,22 @@ class FilingWidget(QMainWindow):
                 font-size: 12px;
                 spacing: 6px;
             }}
+            QCheckBox::indicator {{
+                width: 14px;
+                height: 14px;
+                border-radius: 3px;
+                border: 2px solid #a855f7;
+            }}
+            QCheckBox::indicator:unchecked {{
+                background-color: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #a855f7;
+                border-color: #a855f7;
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: #9333ea;
+            }}
         """)
         self.keystage_toggle.setChecked(False)
         self.keystage_toggle.toggled.connect(self._on_keystage_toggled)
@@ -673,6 +689,22 @@ class FilingWidget(QMainWindow):
             }}
             QCheckBox:disabled {{
                 color: {COLORS['text_secondary']};
+            }}
+            QCheckBox::indicator {{
+                width: 14px;
+                height: 14px;
+                border-radius: 3px;
+                border: 2px solid #a855f7;
+            }}
+            QCheckBox::indicator:unchecked {{
+                background-color: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #a855f7;
+                border-color: #a855f7;
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: #9333ea;
             }}
         """)
         self.print_pdf_toggle.setChecked(True)  # Default ON when visible
