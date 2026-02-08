@@ -44,6 +44,10 @@ def load_project_mapping(projects_root):
     Maps external project numbers (e.g., client's drawing numbers) to local job numbers.
     If the file doesn't exist, returns empty dict (tool continues working normally).
 
+    Supports various CSV header formats - looks for columns containing:
+    - Custom/client/external + project/reference/number for custom project numbers
+    - Local/jwa/internal + job/project/number for local job numbers
+
     Returns:
         dict: Mapping of custom_project_no -> local_job_no (e.g., {'B-012': '2505'})
     """
@@ -56,12 +60,41 @@ def load_project_mapping(projects_root):
     try:
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
+
+            # Find the right columns by checking headers flexibly
+            custom_col = None
+            local_col = None
+
+            if reader.fieldnames:
+                for col in reader.fieldnames:
+                    col_lower = col.lower().replace(':', '').replace('_', ' ').strip()
+
+                    # Look for custom/client/external project number column
+                    if custom_col is None:
+                        if any(kw in col_lower for kw in ['custom', 'client', 'external']):
+                            custom_col = col
+                        elif col_lower in ['reference', 'ref', 'project no', 'project number']:
+                            custom_col = col
+
+                    # Look for local/jwa/internal job number column
+                    if local_col is None:
+                        if any(kw in col_lower for kw in ['local', 'jwa', 'internal']):
+                            local_col = col
+                        elif col_lower in ['job no', 'job number', 'job']:
+                            local_col = col
+
+            # Fallback: if exactly 2 columns, assume first is custom, second is local
+            if (custom_col is None or local_col is None) and reader.fieldnames and len(reader.fieldnames) == 2:
+                custom_col = reader.fieldnames[0]
+                local_col = reader.fieldnames[1]
+
+            if not custom_col or not local_col:
+                print(f"Warning: Could not identify columns in project mapping CSV. Headers: {reader.fieldnames}")
+                return {}
+
             for row in reader:
-                # Support both header formats
-                custom_no = (row.get('Custom Project No:', '') or
-                             row.get('client_reference', '')).strip()
-                local_no = (row.get('Local Project No:', '') or
-                            row.get('jwa_job_number', '')).strip()
+                custom_no = row.get(custom_col, '').strip()
+                local_no = row.get(local_col, '').strip()
                 if custom_no and local_no:
                     # Store both original and uppercase for case-insensitive matching
                     mapping[custom_no] = local_no
@@ -179,36 +212,46 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
 
         # Check each keyword
         for keyword in rule['keywords']:
-            keyword_lower = keyword.lower()
-            keyword_words = keyword_lower.split()
+            keyword_lower = keyword.lower().strip()
 
-            # Exact phrase match (highest confidence)
-            if keyword_lower in name_without_ext:
-                confidence = 1.0
-                if confidence > best_confidence:
-                    best_confidence = confidence
-                    matched_keyword = keyword
+            # Skip empty or too-short keywords (must be at least 2 chars)
+            if len(keyword_lower) < 2:
                 continue
 
-            # Word-by-word match for multi-word keywords
+            keyword_words = keyword_lower.split()
+
+            # Multi-word phrase: check if phrase appears with word boundaries
             if len(keyword_words) > 1:
-                all_words_found = all(w in filename_words for w in keyword_words)
-                if all_words_found:
+                # Use regex to match phrase with word boundaries
+                pattern = r'\b' + re.escape(keyword_lower) + r'\b'
+                if re.search(pattern, name_without_ext):
+                    confidence = 1.0
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        matched_keyword = keyword
+                    continue
+
+                # Also try word-by-word match (words can be separated)
+                all_words_found = all(w in filename_words for w in keyword_words if len(w) >= 2)
+                if all_words_found and len([w for w in keyword_words if len(w) >= 2]) > 0:
                     confidence = 0.95
                     if confidence > best_confidence:
                         best_confidence = confidence
                         matched_keyword = keyword
                     continue
 
-            # Single word exact match
-            if keyword_lower in filename_words:
-                confidence = 0.9
-                if confidence > best_confidence:
-                    best_confidence = confidence
-                    matched_keyword = keyword
-                continue
+            # Single word: must match as whole word, not substring
+            # Use regex word boundary to prevent "OS" matching inside "propOSed"
+            else:
+                pattern = r'\b' + re.escape(keyword_lower) + r'\b'
+                if re.search(pattern, name_without_ext):
+                    confidence = 1.0 if len(keyword_lower) >= 4 else 0.9
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        matched_keyword = keyword
+                    continue
 
-            # Acronym match
+            # Acronym match (for words like "BS5837" matching "bs 5837")
             keyword_no_seps = keyword_lower.replace(' ', '').replace('-', '').replace('_', '')
             if len(keyword_no_seps) >= 3 and keyword_no_seps in filename_words:
                 confidence = 0.95

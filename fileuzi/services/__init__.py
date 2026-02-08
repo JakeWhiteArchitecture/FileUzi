@@ -66,6 +66,21 @@ from .contact_utils import (
     fuzzy_match_contact,
 )
 
+from .email_composer import (
+    detect_os_info,
+    EmailClientDetector,
+    generate_email_subject,
+    extract_first_name,
+    generate_email_body,
+    load_email_signature,
+    detect_email_clients,
+    save_email_client_preference,
+    load_email_client_preference,
+    get_email_client_path,
+    launch_email_compose,
+    detect_superseding_candidates,
+)
+
 __all__ = [
     # Email parser
     'extract_email_body',
@@ -121,4 +136,17 @@ __all__ = [
     'parse_import_export_folder',
     'find_previous_contacts',
     'fuzzy_match_contact',
+    # Email composer
+    'detect_os_info',
+    'EmailClientDetector',
+    'generate_email_subject',
+    'extract_first_name',
+    'generate_email_body',
+    'load_email_signature',
+    'detect_email_clients',
+    'save_email_client_preference',
+    'load_email_client_preference',
+    'get_email_client_path',
+    'launch_email_compose',
+    'detect_superseding_candidates',
 ]

@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QFrame, QMessageBox, QComboBox, QCheckBox,
     QScrollArea, QSizePolicy, QCompleter, QMenu, QDialog
 )
-from PyQt6.QtCore import Qt, QStringListModel
+from PyQt6.QtCore import Qt, QStringListModel, QEvent
 from PyQt6.QtGui import QFont, QPixmap
 
 # Import configuration from fileuzi package
@@ -108,6 +108,7 @@ from fileuzi.ui import (
     FilingChip,
     AttachmentWidget,
     DropZone,
+    DroppableFilesFrame,
     SuccessDialog,
     DatabaseMissingDialog,
     DuplicateEmailDialog,
@@ -116,6 +117,14 @@ from fileuzi.ui import (
 )
 
 from fileuzi.services.filing_operations import replace_with_supersede
+from fileuzi.services.email_composer import (
+    generate_email_subject,
+    generate_email_body,
+    load_email_signature,
+    get_email_client_path,
+    launch_email_compose,
+    detect_superseding_candidates,
+)
 
 
 class FilingWidget(QMainWindow):
@@ -259,6 +268,15 @@ class FilingWidget(QMainWindow):
             # Scale to 120px height (50% larger than 80px)
             scaled_pixmap = pixmap.scaledToHeight(120, Qt.TransformationMode.SmoothTransformation)
             logo_label.setPixmap(scaled_pixmap)
+        else:
+            # Fallback styled text logo
+            logo_label.setText("FU")
+            logo_label.setFixedSize(48, 48)
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            logo_label.setStyleSheet(
+                f"background-color: {COLORS['primary']}; color: #ffffff; "
+                f"font-size: 20px; font-weight: bold; border-radius: 10px;"
+            )
         header_layout.addWidget(logo_label)
 
         layout.addLayout(header_layout)
@@ -302,7 +320,8 @@ class FilingWidget(QMainWindow):
         layout.addWidget(self.drop_zone)
 
         # Files display (hidden until files dropped)
-        self.files_frame = QFrame()
+        # Uses DroppableFilesFrame to allow dropping additional files
+        self.files_frame = DroppableFilesFrame(self)
         self.files_frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {COLORS['bg']};
@@ -427,6 +446,36 @@ class FilingWidget(QMainWindow):
         self.files_keystage_toggle.setChecked(False)
         self.files_keystage_toggle.toggled.connect(self._on_keystage_toggled)
         files_keystage_layout.addWidget(self.files_keystage_toggle)
+
+        # Create Email toggle (only visible for non-.eml exports)
+        self.create_email_toggle = QCheckBox("Create Email")
+        self.create_email_toggle.setStyleSheet(f"""
+            QCheckBox {{
+                color: {COLORS['text']};
+                font-size: 12px;
+                spacing: 6px;
+            }}
+            QCheckBox::indicator {{
+                width: 14px;
+                height: 14px;
+                border-radius: 3px;
+                border: 2px solid #a855f7;
+            }}
+            QCheckBox::indicator:unchecked {{
+                background-color: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #a855f7;
+                border-color: #a855f7;
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: #9333ea;
+            }}
+        """)
+        self.create_email_toggle.setChecked(False)
+        self.create_email_toggle.setVisible(False)
+        files_keystage_layout.addWidget(self.create_email_toggle)
+
         files_keystage_layout.addStretch()
         files_layout.addLayout(files_keystage_layout)
 
@@ -691,6 +740,9 @@ class FilingWidget(QMainWindow):
         self.contact_completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.contact_input.setCompleter(self.contact_completer)
 
+        # Install event filter to handle Down arrow showing all completions
+        self.contact_input.installEventFilter(self)
+
         form_layout.addWidget(self.contact_input)
 
         # Description
@@ -735,8 +787,8 @@ class FilingWidget(QMainWindow):
         self.contact_input.textChanged.connect(self.update_preview)
         self.desc_input.textChanged.connect(self.update_preview)
 
-        # Connect Enter key to file documents
-        self.contact_input.returnPressed.connect(self.file_documents)
+        # Connect Enter key to file documents (desc_input only - contact_input
+        # is handled in eventFilter to avoid filing when selecting from autocomplete)
         self.desc_input.returnPressed.connect(self.file_documents)
 
         layout.addLayout(form_layout)
@@ -822,7 +874,15 @@ class FilingWidget(QMainWindow):
             db_contacts = get_contacts_from_database(self.db_path, self.job_number)
             contacts.update(db_contacts)
 
-        self.previous_contacts = sorted(list(contacts))
+        # Normalize to uppercase and filter out invalid entries like 'sender'/'recipient'
+        invalid_entries = {'sender', 'recipient'}
+        normalized_contacts = set()
+        for contact in contacts:
+            upper_contact = contact.upper()
+            if upper_contact.lower() not in invalid_entries:
+                normalized_contacts.add(upper_contact)
+
+        self.previous_contacts = sorted(list(normalized_contacts))
 
         # Update completer with combined contacts for auto-complete
         model = QStringListModel(self.previous_contacts)
@@ -836,6 +896,7 @@ class FilingWidget(QMainWindow):
         else:
             self.contact_label.setText("Recipient")
             self.contact_input.setPlaceholderText("Enter recipient name...")
+        self._update_create_email_visibility()
         self.update_preview()
 
     def toggle_excluded_attachments(self):
@@ -1337,6 +1398,10 @@ class FilingWidget(QMainWindow):
         if has_qualifying_images:
             self.print_pdf_toggle.setChecked(True)  # Default ON when visible
 
+        # Hide Create Email toggle for .eml files
+        self.create_email_toggle.setVisible(False)
+        self.create_email_toggle.setChecked(False)
+
         # Clear existing attachment checkboxes
         self.attachment_checkboxes = []
         while self.attachments_layout.count():
@@ -1388,6 +1453,7 @@ class FilingWidget(QMainWindow):
                 )
 
                 # Create custom attachment widget
+                # Drawings are assumed to be from Current Drawings (prevents re-filing there)
                 att_widget = AttachmentWidget(
                     filename=filename,
                     size_str=size_str,
@@ -1395,7 +1461,8 @@ class FilingWidget(QMainWindow):
                     parent_widget=self,
                     is_excluded=is_excluded,
                     matched_rules=matched_rules,
-                    is_drawing=is_drawing
+                    is_drawing=is_drawing,
+                    from_current_drawings=is_drawing
                 )
 
                 if is_excluded:
@@ -1490,16 +1557,14 @@ class FilingWidget(QMainWindow):
         self.update_preview()
 
     def handle_regular_files(self, files):
-        """Handle regular (non-email) files with secondary filing support."""
-        # Clear existing file widgets
-        self.file_widgets = []
-        while self.files_container_layout.count():
-            child = self.files_container_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        """Handle regular (non-email) files with secondary filing support.
 
-        # Update header label
-        self.files_label.setText(f"Files ({len(files)}):")
+        Supports multiple drag-and-drop batches - new files are appended to existing list.
+        Detects files from Current Drawings folders and marks them to skip secondary filing
+        back to Current Drawings (to avoid overwriting themselves).
+        """
+        # Get existing filenames to avoid duplicates when appending
+        existing_filenames = {Path(fp).name for _, fp in self.file_widgets}
 
         # Try to detect job number from file path FIRST, before processing files
         # This ensures drawing detection uses the correct job number
@@ -1514,13 +1579,20 @@ class FilingWidget(QMainWindow):
         # Get job number for drawing detection (now should be set from path detection)
         job_for_drawing = self.job_number or self.last_job_number or ''
 
-        # Track if any JWA drawings detected
-        has_drawings = False
+        # Track if any JWA drawings detected (in this batch or existing)
+        has_drawings = any(w.is_drawing for w, _ in self.file_widgets)
+
+        # Count new files added
+        new_files_added = 0
 
         # Create AttachmentWidget for each file
         for file_path in files:
             src = Path(file_path)
             filename = src.name
+
+            # Skip if this filename already exists in the list
+            if filename in existing_filenames:
+                continue
 
             # Get file size
             try:
@@ -1530,10 +1602,15 @@ class FilingWidget(QMainWindow):
             except:
                 size_str = "? KB"
 
-            # Check if this is a drawing PDF
-            is_drawing = is_drawing_pdf(filename, job_for_drawing, self.project_mapping) if job_for_drawing else False
+            # Check if this is a drawing PDF (project_mapping can identify
+            # drawings by custom prefix even without a job number)
+            is_drawing = is_drawing_pdf(filename, job_for_drawing, self.project_mapping)
             if is_drawing:
                 has_drawings = True
+
+            # Check if file is coming from a Current Drawings folder OR is a drawing
+            # (drawings with custom prefixes like B-012 are assumed to be from Current Drawings)
+            from_current_drawings = is_current_drawings_folder(src.parent) or is_drawing
 
             # Match filing rules using cascade (filename -> PDF metadata -> PDF content)
             # For dropped files, read PDF content from file if it's a PDF
@@ -1561,11 +1638,18 @@ class FilingWidget(QMainWindow):
                 is_excluded=False,
                 matched_rules=matched_rules,
                 is_drawing=is_drawing,
-                file_path=str(src)  # Store full path for copying
+                file_path=str(src),  # Store full path for copying
+                from_current_drawings=from_current_drawings
             )
 
             self.files_container_layout.addWidget(file_widget)
             self.file_widgets.append((file_widget, str(src)))
+            existing_filenames.add(filename)
+            new_files_added += 1
+
+        # Update header label with total count
+        total_files = len(self.file_widgets)
+        self.files_label.setText(f"Files ({total_files}):")
 
         # Show files frame, hide email frame
         self.files_frame.setVisible(True)
@@ -1575,6 +1659,9 @@ class FilingWidget(QMainWindow):
         # Auto-switch to Export mode if JWA drawings detected
         if has_drawings:
             self.export_radio.setChecked(True)
+
+        # Update Create Email toggle visibility
+        self._update_create_email_visibility()
 
         self.update_preview()
 
@@ -1669,6 +1756,32 @@ class FilingWidget(QMainWindow):
 
         folder_name = f"{self.job_number}_{direction}_{date_str}_{contact}_{desc}"
         self.preview_label.setText(folder_name)
+
+    def eventFilter(self, obj, event):
+        """Handle events for contact input field."""
+        if obj == self.contact_input and event.type() == QEvent.Type.KeyPress:
+            from PyQt6.QtCore import Qt as QtCore_Qt
+            key = event.key()
+
+            # Down arrow: show all completions if popup not visible
+            if key == QtCore_Qt.Key.Key_Down:
+                if not self.contact_completer.popup().isVisible():
+                    # Show all completions
+                    self.contact_completer.setCompletionPrefix("")
+                    self.contact_completer.complete()
+                    return True
+
+            # Enter key: file documents only if completer popup is NOT visible
+            if key in (QtCore_Qt.Key.Key_Return, QtCore_Qt.Key.Key_Enter):
+                if self.contact_completer.popup().isVisible():
+                    # Let the completer handle the selection
+                    return False
+                else:
+                    # No popup - proceed with filing
+                    self.file_documents()
+                    return True
+
+        return super().eventFilter(obj, event)
 
     def file_documents(self):
         """Create folder and move files, including secondary filing destinations."""
@@ -1794,6 +1907,40 @@ class FilingWidget(QMainWindow):
                     return  # User cancelled
                 keystage_confirmed_name = confirmed_name.strip() if confirmed_name else default_name
 
+        # Superseding confirmation: check BEFORE filing if any drawings will be superseded
+        superseding_files = []
+        if not self.email_data:
+            for file_widget, file_path in self.file_widgets:
+                if file_widget.isChecked():
+                    secondary_dests = file_widget.get_secondary_destinations()
+                    for rule in secondary_dests:
+                        secondary_path = self._resolve_secondary_path(project_path, rule)
+                        if secondary_path and is_current_drawings_folder(secondary_path):
+                            candidates = detect_superseding_candidates(
+                                file_path, secondary_path
+                            )
+                            if candidates:
+                                superseding_files.extend(candidates)
+
+        if superseding_files:
+            msg = (
+                f"The following {len(superseding_files)} drawing(s) will be "
+                f"superseded and moved to Superseded/:\n\n"
+            )
+            for name in superseding_files:
+                msg += f"  - {name}\n"
+            msg += "\nDo you want to proceed?"
+
+            reply = QMessageBox.question(
+                self,
+                "Superseding Confirmation",
+                msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         try:
             # Pre-calculate expected files per destination for circuit breaker
             destination_limits = {}
@@ -1835,9 +1982,11 @@ class FilingWidget(QMainWindow):
             secondary_copies = 0
             actual_secondary_destinations = []  # Track ONLY destinations where files were actually copied
             supersede_messages = []  # Track drawing superseding actions
+            filed_paths = []  # Track actual destination paths for email attachments
 
             if self.email_data:
                 # Save selected email attachments
+                # (No duplicate check - email duplicate dialog already handles this)
                 for att_widget, att in self.attachment_checkboxes:
                     if att_widget.isChecked():
                         # Skip PDF placeholder - it's handled separately below
@@ -1846,39 +1995,11 @@ class FilingWidget(QMainWindow):
 
                         filename = att['filename']
 
-                        # Check for duplicates in project
-                        action, final_filename, replace_target = self._check_file_duplicate(
-                            project_path, filename, dest_folder
-                        )
-
-                        if action == 'skip':
-                            continue  # Skip this file
-
-                        if action == 'replace' and replace_target:
-                            try:
-                                superseded = replace_with_supersede(
-                                    old_path=replace_target,
-                                    project_root=self.projects_root,
-                                    new_file_content=att['data'],
-                                )
-                                if superseded:
-                                    supersede_messages.append(
-                                        f"Old version backed up to: {superseded}"
-                                    )
-                                copied_count += 1
-                                continue
-                            except (ValueError, OSError) as e:
-                                QMessageBox.warning(
-                                    self, "Replace Failed",
-                                    f"Replace operation failed: {e}\n"
-                                    f"Original file has been preserved."
-                                )
-                                continue
-
                         # Primary filing to IMPORTS-EXPORTS
-                        dst = dest_folder / final_filename
-                        if safe_write_attachment(dst, att['data'], self.projects_root, final_filename):
+                        dst = dest_folder / filename
+                        if safe_write_attachment(dst, att['data'], self.projects_root, filename):
                             copied_count += 1
+                            filed_paths.append(dst)
 
                         # Secondary filing to additional destinations
                         secondary_dests = att_widget.get_secondary_destinations()
@@ -1926,47 +2047,24 @@ class FilingWidget(QMainWindow):
                         self.projects_root
                     )
                     if pdf_data and pdf_filename:
-                        # Check for duplicates and get final filename
-                        action, final_pdf_filename, replace_target = self._check_file_duplicate(
-                            project_path, pdf_filename, dest_folder
-                        )
+                        # Primary filing to IMPORTS-EXPORTS
+                        # (No duplicate check - email duplicate dialog already handles this)
+                        pdf_dst = dest_folder / pdf_filename
+                        if safe_write_attachment(pdf_dst, pdf_data, self.projects_root, pdf_filename):
+                            copied_count += 1
 
-                        if action == 'replace' and replace_target:
-                            try:
-                                superseded = replace_with_supersede(
-                                    old_path=replace_target,
-                                    project_root=self.projects_root,
-                                    new_file_content=pdf_data,
-                                )
-                                if superseded:
-                                    supersede_messages.append(
-                                        f"Old version backed up to: {superseded}"
-                                    )
-                                copied_count += 1
-                            except (ValueError, OSError) as e:
-                                QMessageBox.warning(
-                                    self, "Replace Failed",
-                                    f"Replace operation failed: {e}\n"
-                                    f"Original file has been preserved."
-                                )
-                        elif action != 'skip':
-                            # Primary filing to IMPORTS-EXPORTS
-                            pdf_dst = dest_folder / final_pdf_filename
-                            if safe_write_attachment(pdf_dst, pdf_data, self.projects_root, final_pdf_filename):
-                                copied_count += 1
-
-                            # Secondary filing from PDF placeholder widget settings
-                            if self.pdf_placeholder_widget is not None:
-                                secondary_dests = self.pdf_placeholder_widget.get_secondary_destinations()
-                                for rule in secondary_dests:
-                                    secondary_path = self._resolve_secondary_path(project_path, rule)
-                                    if secondary_path:
-                                        sec_dst = secondary_path / final_pdf_filename
-                                        if safe_write_attachment(sec_dst, pdf_data, self.projects_root, final_pdf_filename):
-                                            secondary_copies += 1
-                                            folder_type = rule.get('folder_type', '')
-                                            if folder_type and folder_type not in actual_secondary_destinations:
-                                                actual_secondary_destinations.append(folder_type)
+                        # Secondary filing from PDF placeholder widget settings
+                        if self.pdf_placeholder_widget is not None:
+                            secondary_dests = self.pdf_placeholder_widget.get_secondary_destinations()
+                            for rule in secondary_dests:
+                                secondary_path = self._resolve_secondary_path(project_path, rule)
+                                if secondary_path:
+                                    sec_dst = secondary_path / pdf_filename
+                                    if safe_write_attachment(sec_dst, pdf_data, self.projects_root, pdf_filename):
+                                        secondary_copies += 1
+                                        folder_type = rule.get('folder_type', '')
+                                        if folder_type and folder_type not in actual_secondary_destinations:
+                                            actual_secondary_destinations.append(folder_type)
 
             else:
                 # Copy regular files with secondary filing support
@@ -1995,6 +2093,7 @@ class FilingWidget(QMainWindow):
                                         f"Old version backed up to: {superseded}"
                                     )
                                 copied_count += 1
+                                filed_paths.append(replace_target)
                                 continue
                             except (ValueError, OSError) as e:
                                 QMessageBox.warning(
@@ -2009,12 +2108,18 @@ class FilingWidget(QMainWindow):
                         if src.is_file():
                             if safe_copy(src, dst, self.projects_root):
                                 copied_count += 1
+                                filed_paths.append(dst)
 
                             # Secondary filing to additional destinations
                             secondary_dests = file_widget.get_secondary_destinations()
                             for rule in secondary_dests:
                                 secondary_path = self._resolve_secondary_path(project_path, rule)
                                 if secondary_path:
+                                    # Skip filing to Current Drawings if file came from there
+                                    # (to avoid overwriting itself unnecessarily)
+                                    if file_widget.from_current_drawings and is_current_drawings_folder(secondary_path):
+                                        continue
+
                                     sec_dst = secondary_path / final_filename
                                     if safe_copy(src, sec_dst, self.projects_root):
                                         secondary_copies += 1
@@ -2141,6 +2246,14 @@ class FilingWidget(QMainWindow):
             dialog = SuccessDialog(self, success_msg, dest_folder)
             dialog.exec()
 
+            # Launch email composition if Create Email toggle is checked
+            if (hasattr(self, 'create_email_toggle') and
+                self.create_email_toggle.isVisible() and
+                self.create_email_toggle.isChecked()):
+                self._launch_email_after_filing(
+                    filed_paths, project_path, contact, desc
+                )
+
             self.reset_form()
 
         except PathJailViolation as e:
@@ -2240,7 +2353,7 @@ class FilingWidget(QMainWindow):
                 'has_attachments': 1 if selected_attachments else 0,
                 'attachment_names': attachment_names,
                 'source_path': self.email_source_path,
-                'contact_name': contact,  # User-entered contact at time of filing
+                'contact_name': contact.upper(),  # Normalize to uppercase for consistency
                 'job_number': self.job_number,
             }
 
@@ -2290,7 +2403,7 @@ class FilingWidget(QMainWindow):
                 'has_attachments': 0,
                 'attachment_names': None,
                 'source_path': None,
-                'contact_name': contact,
+                'contact_name': contact.upper(),
                 'job_number': self.job_number,
             }
 
@@ -2329,24 +2442,9 @@ class FilingWidget(QMainWindow):
             same_location = [d for d in duplicates if Path(d).parent == dest_folder]
             diff_location = [d for d in duplicates if Path(d).parent != dest_folder]
 
-            # If all duplicates are at different locations, show different-location dialog
+            # If all duplicates are at different locations, just proceed
+            # (email duplicate detection handles most cases, no need for dialog)
             if diff_location and not same_location:
-                dialog = DifferentLocationDuplicateDialog(
-                    self, filename, diff_location[0],
-                    destination_folder, self.projects_root
-                )
-                result = dialog.exec()
-
-                if result != QDialog.DialogCode.Accepted:
-                    return ('skip', filename, None)
-
-                if dialog.result_action == 'skip':
-                    return ('skip', filename, None)
-                elif dialog.result_action == 'proceed':
-                    return ('proceed', filename, None)
-                elif dialog.result_action == 'replace':
-                    return ('replace', filename, dialog.replace_target)
-
                 return ('proceed', filename, None)
 
         # Same-location or mixed: show standard dialog
@@ -2513,6 +2611,84 @@ class FilingWidget(QMainWindow):
         else:
             logger.info("KEYSTAGE TOGGLE | Disabled")
 
+    def _update_create_email_visibility(self):
+        """Show/hide Create Email toggle based on direction and file type."""
+        is_export = self.export_radio.isChecked()
+        is_regular_files = not self.email_data and bool(self.file_widgets)
+        self.create_email_toggle.setVisible(is_export and is_regular_files)
+        if not (is_export and is_regular_files):
+            self.create_email_toggle.setChecked(False)
+
+    def _launch_email_after_filing(self, filed_paths, project_path, contact, desc):
+        """Launch email client with filed documents as attachments after filing.
+
+        Args:
+            filed_paths: List of Path objects to actually-filed documents
+            project_path: Path to the project folder
+            contact: Recipient name from UI
+            desc: Description from UI
+        """
+        import logging
+        log = logging.getLogger('fileuzi.services.email_composer')
+        log.info("_launch_email_after_filing: %d filed paths, project=%s",
+                 len(filed_paths), project_path)
+        try:
+            # Get email client path
+            client_path = get_email_client_path(self.db_path)
+            log.info("  client_path resolved to: %s", client_path)
+
+            # Generate subject from project folder name and description
+            project_folder_name = project_path.name
+            subject = generate_email_subject(project_folder_name, desc)
+            log.info("  subject: %s", subject)
+
+            # Load email signature
+            try:
+                signature_html = load_email_signature(self.projects_root)
+            except FileNotFoundError:
+                signature_html = ""
+                log.info("  No email signature file found, using empty")
+
+            # Generate email body
+            body_html = generate_email_body(contact, signature_html)
+
+            # Use the actual filed paths (only files that exist)
+            attachment_paths = [p for p in filed_paths if Path(p).is_file()]
+            for p in attachment_paths:
+                log.info("  attachment: %s", p)
+
+            if not attachment_paths:
+                log.warning("  No filed paths available — skipping email")
+                return
+
+            # Launch email client
+            launch_email_compose(subject, attachment_paths, body_html, client_path)
+
+        except FileNotFoundError as e:
+            log.error("  FileNotFoundError: %s", e)
+            QMessageBox.warning(
+                self, "Email Client Not Found",
+                str(e)
+            )
+        except ValueError as e:
+            log.error("  ValueError: %s", e)
+            QMessageBox.warning(
+                self, "Email Error",
+                str(e)
+            )
+        except RuntimeError as e:
+            log.error("  RuntimeError: %s", e)
+            QMessageBox.warning(
+                self, "Email Error",
+                str(e)
+            )
+        except Exception as e:
+            log.error("  Unexpected error: %s", e, exc_info=True)
+            QMessageBox.warning(
+                self, "Email Error",
+                f"Unexpected error launching email:\n\n{e}"
+            )
+
     def _on_print_pdf_toggled(self, checked):
         """Handle Print Email to PDF toggle state change - add/remove PDF placeholder in attachments."""
         if not self.email_data:
@@ -2616,6 +2792,11 @@ class FilingWidget(QMainWindow):
             self.print_pdf_toggle.setVisible(False)
             self.print_pdf_toggle.setChecked(True)  # Reset to default ON for next email
         self.pdf_placeholder_widget = None
+
+        # Reset and hide Create Email toggle
+        if hasattr(self, 'create_email_toggle'):
+            self.create_email_toggle.setVisible(False)
+            self.create_email_toggle.setChecked(False)
         self.file_widgets = []
         self.subject_word_labels = []
 
@@ -2697,6 +2878,8 @@ class FilingWidget(QMainWindow):
 
 
 def main():
+    import logging as _logging
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Jaike_CRM Filing Widget')
     parser.add_argument(
@@ -2704,7 +2887,28 @@ def main():
         type=str,
         help='File to preload into the widget'
     )
+    parser.add_argument(
+        '--debug-email',
+        action='store_true',
+        help='Enable debug logging for email client detection and launch'
+    )
     args, qt_args = parser.parse_known_args()
+
+    # Set up logging
+    if args.debug_email:
+        _logging.basicConfig(
+            level=_logging.DEBUG,
+            format='%(asctime)s %(name)s %(levelname)s: %(message)s',
+            datefmt='%H:%M:%S',
+        )
+        _logging.getLogger('fileuzi.services.email_composer').setLevel(_logging.DEBUG)
+    else:
+        # Default: email INFO to stderr so detection results are visible
+        _logging.basicConfig(
+            level=_logging.WARNING,
+            format='%(name)s %(levelname)s: %(message)s',
+        )
+        _logging.getLogger('fileuzi.services.email_composer').setLevel(_logging.INFO)
 
     # Qt needs sys.argv-like list
     app = QApplication([sys.argv[0]] + qt_args)

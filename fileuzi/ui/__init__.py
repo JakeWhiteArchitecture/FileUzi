@@ -6,6 +6,7 @@ from .widgets import (
     FilingChip,
     AttachmentWidget,
     DropZone,
+    DroppableFilesFrame,
 )
 
 from .dialogs import (
@@ -23,6 +24,7 @@ __all__ = [
     'FilingChip',
     'AttachmentWidget',
     'DropZone',
+    'DroppableFilesFrame',
     # Dialogs
     'SuccessDialog',
     'DatabaseMissingDialog',

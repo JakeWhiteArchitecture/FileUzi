@@ -230,7 +230,7 @@ class AttachmentWidget(QWidget):
     """Custom widget for an email attachment with checkbox and clickable filename."""
 
     def __init__(self, filename, size_str, attachment_data, parent_widget, is_excluded=False,
-                 matched_rules=None, is_drawing=False, file_path=None):
+                 matched_rules=None, is_drawing=False, file_path=None, from_current_drawings=False):
         super().__init__()
         self.filename = filename
         self.size_str = size_str
@@ -246,6 +246,9 @@ class AttachmentWidget(QWidget):
         self.is_drawing = is_drawing
         self.secondary_filing_enabled = is_drawing  # Auto-enable for drawings
         self.filing_chips = []
+
+        # Track if file came from Current Drawings folder (skip secondary filing to same)
+        self.from_current_drawings = from_current_drawings
 
         self.setup_ui()
 
@@ -579,5 +582,28 @@ class DropZone(QFrame):
             "",
             "All Files (*.*);;Email Files (*.eml)"
         )
+        if files and self.parent_widget:
+            self.parent_widget.on_files_dropped(files)
+
+
+class DroppableFilesFrame(QFrame):
+    """A frame that accepts file drops to add more files to the list."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_widget = parent
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent):
+        files = []
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if os.path.exists(file_path):
+                files.append(file_path)
+
         if files and self.parent_widget:
             self.parent_widget.on_files_dropped(files)
