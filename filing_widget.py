@@ -32,10 +32,10 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QRadioButton, QButtonGroup,
     QFrame, QMessageBox, QComboBox, QCheckBox,
-    QScrollArea, QSizePolicy, QCompleter, QMenu, QDialog
+    QScrollArea, QSizePolicy, QCompleter, QMenu, QDialog, QToolButton
 )
 from PyQt6.QtCore import Qt, QStringListModel, QEvent
-from PyQt6.QtGui import QAction, QFont, QPixmap
+from PyQt6.QtGui import QFont, QPixmap
 
 # Import configuration from fileuzi package
 from fileuzi.config import (
@@ -248,14 +248,6 @@ class FilingWidget(QMainWindow):
     def setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-
-        # Top menu bar (Tools > Settings…)
-        menu_bar = self.menuBar()
-        tools_menu = menu_bar.addMenu("Tools")
-        settings_action = QAction("Settings…", self)
-        settings_action.setShortcut("Ctrl+,")
-        settings_action.triggered.connect(self.open_settings_panel)
-        tools_menu.addAction(settings_action)
 
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -862,6 +854,34 @@ class FilingWidget(QMainWindow):
 
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
+
+        # Footer with a small settings cog in the bottom-left
+        footer = QWidget()
+        footer.setStyleSheet(
+            f"background-color: {COLORS['surface']}; border-top: 1px solid {COLORS['border']};"
+        )
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(8, 4, 8, 4)
+        footer_layout.setSpacing(0)
+
+        settings_btn = QToolButton()
+        settings_btn.setText("\u2699")  # ⚙ gear glyph
+        settings_btn.setToolTip("Settings (Ctrl+,)")
+        settings_btn.setShortcut("Ctrl+,")
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setAutoRaise(True)
+        settings_btn.setFixedSize(28, 28)
+        settings_btn.setStyleSheet(
+            f"QToolButton {{ font-size: 18px; color: {COLORS['text_secondary']}; "
+            f"border: none; padding: 0; }}"
+            f"QToolButton:hover {{ color: {COLORS['text']}; }}"
+        )
+        settings_btn.clicked.connect(self.open_settings_panel)
+
+        footer_layout.addWidget(settings_btn)
+        footer_layout.addStretch()
+
+        main_layout.addWidget(footer)
 
     def on_project_selected(self, index):
         """Handle project selection from dropdown."""
