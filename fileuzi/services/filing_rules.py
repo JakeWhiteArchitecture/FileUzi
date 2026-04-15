@@ -8,6 +8,7 @@ from pathlib import Path
 from difflib import SequenceMatcher
 
 from fileuzi.config import FILING_RULES_FILENAME, PROJECT_MAPPING_FILENAME
+from fileuzi.config import PROJECT_MAPPING_COLUMNS, FILING_RULES_ENGINE
 from fileuzi.utils import get_tools_folder_path
 
 # Import PDF extraction functions at module level for mockability
@@ -71,16 +72,16 @@ def load_project_mapping(projects_root):
 
                     # Look for custom/client/external project number column
                     if custom_col is None:
-                        if any(kw in col_lower for kw in ['custom', 'client', 'external']):
+                        if any(kw in col_lower for kw in PROJECT_MAPPING_COLUMNS['their_project_number_primary']):
                             custom_col = col
-                        elif col_lower in ['reference', 'ref', 'project no', 'project number']:
+                        elif col_lower in PROJECT_MAPPING_COLUMNS['their_project_number_fallback']:
                             custom_col = col
 
                     # Look for local/jwa/internal job number column
                     if local_col is None:
-                        if any(kw in col_lower for kw in ['local', 'jwa', 'internal']):
+                        if any(kw in col_lower for kw in PROJECT_MAPPING_COLUMNS['our_job_number_primary']):
                             local_col = col
-                        elif col_lower in ['job no', 'job number', 'job']:
+                        elif col_lower in PROJECT_MAPPING_COLUMNS['our_job_number_fallback']:
                             local_col = col
 
             # Fallback: if exactly 2 columns, assume first is custom, second is local
@@ -150,18 +151,18 @@ def load_filing_rules(projects_root):
             for row in reader:
                 # Skip paused rules
                 pause_val = row.get('Pause', '') or row.get('pause', '')
-                if pause_val.strip().lower() == 'yes':
+                if pause_val.strip().lower() == FILING_RULES_ENGINE['pause_trigger_value']:
                     continue
 
                 # Parse keywords (support both | and , separators, case-insensitive headers)
                 keywords_raw = row.get('Keywords', '') or row.get('keywords', '')
                 # Split by both | and , to handle different formats
-                keywords_split = re.split(r'[|,]', keywords_raw)
+                keywords_split = re.split(FILING_RULES_ENGINE['keyword_separator_pattern'], keywords_raw)
                 keywords = [k.strip().lower() for k in keywords_split if k.strip()]
 
                 # Parse descriptors (support both | and , separators, case-insensitive headers)
                 descriptors_raw = row.get('Interchangeable_Descriptors', '') or row.get('descriptors', '')
-                descriptors_split = re.split(r'[|,]', descriptors_raw)
+                descriptors_split = re.split(FILING_RULES_ENGINE['keyword_separator_pattern'], descriptors_raw)
                 descriptors = [d.strip().lower() for d in descriptors_split if d.strip()]
 
                 rules.append({
@@ -170,7 +171,7 @@ def load_filing_rules(projects_root):
                     'folder_location': (row.get('Folder_Location', '') or row.get('folder_location', '')).strip(),
                     'folder_type': (row.get('Folder_Type', '') or row.get('folder_type', '')).strip(),
                     'subfolder_structure': (row.get('Subfolder_Structure', '') or row.get('subfolder_structure', '')).strip(),
-                    'colour': (row.get('Colour', '') or row.get('colour', '') or '#64748b').strip(),
+                    'colour': (row.get('Colour', '') or row.get('colour', '') or FILING_RULES_ENGINE['default_chip_color']).strip(),
                 })
     except Exception as e:
         print(f"Error loading filing rules: {e}")
@@ -179,7 +180,7 @@ def load_filing_rules(projects_root):
     return rules
 
 
-def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
+def match_filing_rules(filename, rules, fuzzy_threshold=None):
     """
     Match a filename against filing rules.
 
@@ -195,6 +196,9 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
         list: List of matching rules with confidence scores, sorted by confidence desc
               Each item is dict with: rule, confidence
     """
+    if fuzzy_threshold is None:
+        fuzzy_threshold = FILING_RULES_ENGINE['fuzzy_threshold']
+
     if not rules:
         return []
 
@@ -202,7 +206,7 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
     # Remove extension for matching
     name_without_ext = filename_lower.rsplit('.', 1)[0] if '.' in filename_lower else filename_lower
     # Split into words for matching (only words 3+ chars)
-    filename_words = set(w for w in re.findall(r'\b[\w\-]+\b', name_without_ext) if len(w) >= 3)
+    filename_words = set(w for w in re.findall(r'\b[\w\-]+\b', name_without_ext) if len(w) >= FILING_RULES_ENGINE['min_word_length_filename'])
 
     matches = []
 
@@ -215,7 +219,7 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
             keyword_lower = keyword.lower().strip()
 
             # Skip empty or too-short keywords (must be at least 2 chars)
-            if len(keyword_lower) < 2:
+            if len(keyword_lower) < FILING_RULES_ENGINE['min_keyword_length']:
                 continue
 
             keyword_words = keyword_lower.split()
@@ -232,8 +236,8 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
                     continue
 
                 # Also try word-by-word match (words can be separated)
-                all_words_found = all(w in filename_words for w in keyword_words if len(w) >= 2)
-                if all_words_found and len([w for w in keyword_words if len(w) >= 2]) > 0:
+                all_words_found = all(w in filename_words for w in keyword_words if len(w) >= FILING_RULES_ENGINE['min_multiword_component_length'])
+                if all_words_found and len([w for w in keyword_words if len(w) >= FILING_RULES_ENGINE['min_multiword_component_length']]) > 0:
                     confidence = 0.95
                     if confidence > best_confidence:
                         best_confidence = confidence
@@ -245,7 +249,7 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
             else:
                 pattern = r'\b' + re.escape(keyword_lower) + r'\b'
                 if re.search(pattern, name_without_ext):
-                    confidence = 1.0 if len(keyword_lower) >= 4 else 0.9
+                    confidence = FILING_RULES_ENGINE['confidence_long_word_score'] if len(keyword_lower) >= FILING_RULES_ENGINE['confidence_long_word_threshold'] else FILING_RULES_ENGINE['confidence_short_word_score']
                     if confidence > best_confidence:
                         best_confidence = confidence
                         matched_keyword = keyword
@@ -253,7 +257,7 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
 
             # Acronym match (for words like "BS5837" matching "bs 5837")
             keyword_no_seps = keyword_lower.replace(' ', '').replace('-', '').replace('_', '')
-            if len(keyword_no_seps) >= 3 and keyword_no_seps in filename_words:
+            if len(keyword_no_seps) >= FILING_RULES_ENGINE['min_acronym_length'] and keyword_no_seps in filename_words:
                 confidence = 0.95
                 if confidence > best_confidence:
                     best_confidence = confidence
@@ -263,7 +267,7 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
             # Also check if filename word without common separators matches keyword
             for word in filename_words:
                 word_cleaned = word.replace('-', '').replace('_', '')
-                if word_cleaned == keyword_no_seps and len(word_cleaned) >= 3:
+                if word_cleaned == keyword_no_seps and len(word_cleaned) >= FILING_RULES_ENGINE['min_acronym_length']:
                     confidence = 0.95
                     if confidence > best_confidence:
                         best_confidence = confidence
@@ -271,9 +275,9 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
                     break
 
             # Fuzzy match - only for keywords >= 5 chars
-            if len(keyword_lower) >= 5:
+            if len(keyword_lower) >= FILING_RULES_ENGINE['min_fuzzy_keyword_length']:
                 for word in filename_words:
-                    if len(word) >= 5 and abs(len(word) - len(keyword_lower)) <= 3:
+                    if len(word) >= FILING_RULES_ENGINE['min_fuzzy_keyword_length'] and abs(len(word) - len(keyword_lower)) <= FILING_RULES_ENGINE['max_fuzzy_char_difference']:
                         ratio = SequenceMatcher(None, keyword_lower, word).ratio()
                         if ratio >= fuzzy_threshold:
                             if ratio > best_confidence:
@@ -285,7 +289,7 @@ def match_filing_rules(filename, rules, fuzzy_threshold=0.85):
             for descriptor in rule['descriptors']:
                 descriptor_lower = descriptor.lower()
                 if descriptor_lower in name_without_ext or descriptor_lower in filename_words:
-                    best_confidence = min(1.0, best_confidence + 0.05)
+                    best_confidence = min(1.0, best_confidence + FILING_RULES_ENGINE['descriptor_match_bonus'])
                     break
 
             matches.append({

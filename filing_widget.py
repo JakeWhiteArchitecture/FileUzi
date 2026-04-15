@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QRadioButton, QButtonGroup,
     QFrame, QMessageBox, QComboBox, QCheckBox,
-    QScrollArea, QSizePolicy, QCompleter, QMenu, QDialog
+    QScrollArea, QSizePolicy, QCompleter, QMenu, QDialog, QToolButton
 )
 from PyQt6.QtCore import Qt, QStringListModel, QEvent
 from PyQt6.QtGui import QFont, QPixmap
@@ -46,6 +46,7 @@ from fileuzi.config import (
     SECONDARY_FILING_WIDTH,
     MAX_CHIPS,
     FILING_RULES_FILENAME,
+    ATTACHMENT_FILTERING,
 )
 
 # Import utilities from fileuzi package
@@ -229,6 +230,20 @@ class FilingWidget(QMainWindow):
                     sys.exit(0)
 
         return True
+
+    def open_settings_panel(self):
+        """Open the Settings dialog that exposes filing-rule configuration."""
+        try:
+            from fileuzi.ui.settings_panel import SettingsPanel
+        except ImportError as exc:
+            QMessageBox.critical(
+                self,
+                "Settings Unavailable",
+                f"Settings panel could not be loaded:\n{exc}"
+            )
+            return
+        dialog = SettingsPanel(self)
+        dialog.exec()
 
     def setup_ui(self):
         central = QWidget()
@@ -840,6 +855,34 @@ class FilingWidget(QMainWindow):
         scroll.setWidget(scroll_content)
         main_layout.addWidget(scroll)
 
+        # Footer with a small settings cog in the bottom-left
+        footer = QWidget()
+        footer.setStyleSheet(
+            f"background-color: {COLORS['surface']}; border-top: 1px solid {COLORS['border']};"
+        )
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(8, 4, 8, 4)
+        footer_layout.setSpacing(0)
+
+        settings_btn = QToolButton()
+        settings_btn.setText("\u2699")  # ⚙ gear glyph
+        settings_btn.setToolTip("Settings (Ctrl+,)")
+        settings_btn.setShortcut("Ctrl+,")
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setAutoRaise(True)
+        settings_btn.setFixedSize(28, 28)
+        settings_btn.setStyleSheet(
+            f"QToolButton {{ font-size: 18px; color: {COLORS['text_secondary']}; "
+            f"border: none; padding: 0; }}"
+            f"QToolButton:hover {{ color: {COLORS['text']}; }}"
+        )
+        settings_btn.clicked.connect(self.open_settings_panel)
+
+        footer_layout.addWidget(settings_btn)
+        footer_layout.addStretch()
+
+        main_layout.addWidget(footer)
+
     def on_project_selected(self, index):
         """Handle project selection from dropdown."""
         data = self.project_combo.currentData()
@@ -875,7 +918,7 @@ class FilingWidget(QMainWindow):
             contacts.update(db_contacts)
 
         # Normalize to uppercase and filter out invalid entries like 'sender'/'recipient'
-        invalid_entries = {'sender', 'recipient'}
+        invalid_entries = {name.lower() for name in ATTACHMENT_FILTERING['excluded_contact_names']}
         normalized_contacts = set()
         for contact in contacts:
             upper_contact = contact.upper()
@@ -1432,7 +1475,7 @@ class FilingWidget(QMainWindow):
                 size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{att['size']/1024/1024:.1f} MB"
 
                 filename = att['filename']
-                is_image = filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))
+                is_image = filename.lower().endswith(tuple(ATTACHMENT_FILTERING['image_extensions']))
                 is_small = att['size'] < MIN_ATTACHMENT_SIZE
                 is_embedded = is_embedded_image(filename)
 

@@ -8,7 +8,7 @@ from email import policy
 from email.utils import parsedate_to_datetime, parseaddr
 from datetime import datetime
 
-from fileuzi.config import MY_EMAIL_ADDRESSES, SIGN_OFF_PATTERNS, DOMAIN_SUFFIXES
+from fileuzi.config import MY_EMAIL_ADDRESSES, SIGN_OFF_PATTERNS, DOMAIN_SUFFIXES, EMAIL_PARSING_RULES
 from fileuzi.utils import HTMLTextExtractor
 
 
@@ -265,7 +265,7 @@ def detect_email_direction(email_data):
         return 'IN'
 
     # Default to IN if we can't determine
-    return 'IN'
+    return EMAIL_PARSING_RULES['direction_fallback']
 
 
 def extract_embedded_images(msg, min_size=None):
@@ -335,12 +335,7 @@ def extract_business_from_domain(email_addr):
     business = domain.replace('.', '-').replace('_', '-')
 
     # Skip generic/personal email domains
-    generic_domains = [
-        'gmail', 'googlemail', 'yahoo', 'hotmail', 'outlook', 'icloud', 'aol',
-        'mail', 'email', 'live', 'msn', 'btinternet', 'sky', 'virginmedia',
-        'protonmail', 'zoho', 'ymail', 'rocketmail', 'fastmail', 'tutanota',
-        'gmx', 'web', 'mail', 'me', 'mac', 'pm', 'proton'
-    ]
+    generic_domains = EMAIL_PARSING_RULES['generic_email_domains']
     if business in generic_domains:
         return None
 
