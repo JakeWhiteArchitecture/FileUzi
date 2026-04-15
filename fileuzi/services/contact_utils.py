@@ -5,6 +5,8 @@ Contact name utilities for FileUzi.
 from pathlib import Path
 from difflib import SequenceMatcher
 
+from fileuzi.config import CONTACT_MANAGEMENT, FOLDER_KEYWORDS
+
 
 def parse_import_export_folder(folder_name):
     """
@@ -17,9 +19,9 @@ def parse_import_export_folder(folder_name):
         str: contact name or None
     """
     parts = folder_name.split('_')
-    if len(parts) >= 4:
+    if len(parts) >= CONTACT_MANAGEMENT['folder_name_contact_index'] + 1:
         # Contact is the 4th part (index 3)
-        return parts[3]
+        return parts[CONTACT_MANAGEMENT['folder_name_contact_index']]
     return None
 
 
@@ -41,10 +43,10 @@ def find_previous_contacts(project_folder, job_number):
     for item in project_path.iterdir():
         if item.is_dir():
             name_upper = item.name.upper()
-            if 'IMPORT' in name_upper and 'EXPORT' in name_upper:
+            if all(kw in name_upper for kw in FOLDER_KEYWORDS['imports_exports']):
                 imports_exports_folder = item
                 break
-            if job_number in item.name and ('IMPORT' in name_upper or 'EXPORT' in name_upper):
+            if job_number in item.name and any(kw in name_upper for kw in FOLDER_KEYWORDS['imports_exports']):
                 imports_exports_folder = item
                 break
 
@@ -55,7 +57,7 @@ def find_previous_contacts(project_folder, job_number):
     for item in imports_exports_folder.iterdir():
         if item.is_dir():
             contact = parse_import_export_folder(item.name)
-            if contact and len(contact) > 1:
+            if contact and len(contact) > CONTACT_MANAGEMENT['min_contact_name_length']:
                 # Convert from folder format back to readable
                 readable = contact.replace('-', ' ').title()
                 contacts.add(readable)
@@ -63,13 +65,15 @@ def find_previous_contacts(project_folder, job_number):
     return sorted(list(contacts))
 
 
-def fuzzy_match_contact(input_text, contacts, threshold=0.6):
+def fuzzy_match_contact(input_text, contacts, threshold=None):
     """
     Find contacts that fuzzy match the input text.
 
     Returns:
         list: Matching contacts sorted by similarity
     """
+    if threshold is None:
+        threshold = CONTACT_MANAGEMENT['fuzzy_match_threshold']
     if not input_text or not contacts:
         return contacts
 

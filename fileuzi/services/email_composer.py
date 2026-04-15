@@ -14,19 +14,19 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from fileuzi.config import FILING_WIDGET_TOOLS_FOLDER
+from fileuzi.config import FILING_WIDGET_TOOLS_FOLDER, OPERATION_LIMITS
 
 logger = logging.getLogger(__name__)
 
-# Maximum attachment size for email (25MB)
-MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024
+# Maximum attachment size for email (from settings.OPERATION_LIMITS)
+MAX_ATTACHMENT_SIZE = OPERATION_LIMITS['max_email_attachment_size']
 
-# Maximum command line length (safe limit below 32KB kernel limit)
-MAX_COMMAND_LENGTH = 30000
+# Maximum command line length (from settings.OPERATION_LIMITS)
+MAX_COMMAND_LENGTH = OPERATION_LIMITS['max_command_line_length']
 
-# Email signature folder and filename
-EMAIL_SIGNATURE_FOLDER = '*EMAIL_SIGNATURE*'
-EMAIL_SIGNATURE_FILENAME = 'email_signature.html'
+# Email signature folder and filename (from settings.OPERATION_LIMITS)
+EMAIL_SIGNATURE_FOLDER = OPERATION_LIMITS['email_signature_folder']
+EMAIL_SIGNATURE_FILENAME = OPERATION_LIMITS['email_signature_filename']
 
 
 # ============================================================================

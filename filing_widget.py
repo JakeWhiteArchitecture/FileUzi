@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QSizePolicy, QCompleter, QMenu, QDialog
 )
 from PyQt6.QtCore import Qt, QStringListModel, QEvent
-from PyQt6.QtGui import QFont, QPixmap
+from PyQt6.QtGui import QAction, QFont, QPixmap
 
 # Import configuration from fileuzi package
 from fileuzi.config import (
@@ -46,6 +46,7 @@ from fileuzi.config import (
     SECONDARY_FILING_WIDTH,
     MAX_CHIPS,
     FILING_RULES_FILENAME,
+    ATTACHMENT_FILTERING,
 )
 
 # Import utilities from fileuzi package
@@ -230,9 +231,31 @@ class FilingWidget(QMainWindow):
 
         return True
 
+    def open_settings_panel(self):
+        """Open the Settings dialog that exposes filing-rule configuration."""
+        try:
+            from fileuzi.ui.settings_panel import SettingsPanel
+        except ImportError as exc:
+            QMessageBox.critical(
+                self,
+                "Settings Unavailable",
+                f"Settings panel could not be loaded:\n{exc}"
+            )
+            return
+        dialog = SettingsPanel(self)
+        dialog.exec()
+
     def setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
+
+        # Top menu bar (Tools > Settings…)
+        menu_bar = self.menuBar()
+        tools_menu = menu_bar.addMenu("Tools")
+        settings_action = QAction("Settings…", self)
+        settings_action.setShortcut("Ctrl+,")
+        settings_action.triggered.connect(self.open_settings_panel)
+        tools_menu.addAction(settings_action)
 
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -875,7 +898,7 @@ class FilingWidget(QMainWindow):
             contacts.update(db_contacts)
 
         # Normalize to uppercase and filter out invalid entries like 'sender'/'recipient'
-        invalid_entries = {'sender', 'recipient'}
+        invalid_entries = {name.lower() for name in ATTACHMENT_FILTERING['excluded_contact_names']}
         normalized_contacts = set()
         for contact in contacts:
             upper_contact = contact.upper()
@@ -1432,7 +1455,7 @@ class FilingWidget(QMainWindow):
                 size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{att['size']/1024/1024:.1f} MB"
 
                 filename = att['filename']
-                is_image = filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))
+                is_image = filename.lower().endswith(tuple(ATTACHMENT_FILTERING['image_extensions']))
                 is_small = att['size'] < MIN_ATTACHMENT_SIZE
                 is_embedded = is_embedded_image(filename)
 

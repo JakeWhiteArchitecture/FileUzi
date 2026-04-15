@@ -6,7 +6,13 @@ import re
 import shutil
 from pathlib import Path
 
-from fileuzi.config import STAGE_HIERARCHY
+from fileuzi.config import (
+    STAGE_HIERARCHY,
+    DRAWING_NUMBER_PATTERNS,
+    FOLDER_KEYWORDS,
+    build_drawing_revision_pattern,
+    build_drawing_prefix_pattern,
+)
 from fileuzi.utils import (
     get_file_ops_logger,
     get_circuit_breaker,
@@ -45,15 +51,13 @@ def is_drawing_pdf(filename, job_number, project_mapping=None):
                 prefixes_to_check.append(local_no)
 
     for prefix in prefixes_to_check:
-        escaped_prefix = re.escape(prefix)
-
         # Pattern 1: PREFIX_NN followed by separator
-        pattern1 = rf'^{escaped_prefix}_(\d{{2,3}})[\s_]'
+        pattern1 = build_drawing_prefix_pattern(prefix, new_format=True)
         if re.match(pattern1, filename, re.IGNORECASE):
             return True
 
         # Pattern 2: PREFIX - NNN followed by separator
-        pattern2 = rf'^{escaped_prefix}\s*[-–]\s*(\d{{2,3}})[\s\-–_]'
+        pattern2 = build_drawing_prefix_pattern(prefix, new_format=False)
         if re.match(pattern2, filename, re.IGNORECASE):
             return True
 
@@ -89,7 +93,7 @@ def parse_drawing_filename_new(filename):
         return None
 
     last_part = parts[-1]
-    stage_match = re.match(r'^(F|PL|P|W|C)(\d{2})$', last_part, re.IGNORECASE)
+    stage_match = re.match(build_drawing_revision_pattern(), last_part, re.IGNORECASE)
     if not stage_match:
         return None
 
@@ -125,7 +129,7 @@ def parse_drawing_filename_old(filename):
         return None
 
     base = filename[:-4]
-    parts = re.split(r'\s+[-–]\s+', base)
+    parts = re.split(DRAWING_NUMBER_PATTERNS['old_delimiter_pattern'], base)
     if len(parts) < 3:
         return None
 
@@ -136,7 +140,7 @@ def parse_drawing_filename_old(filename):
     if not job.isdigit():
         return None
 
-    drawing_match = re.match(r'^(\d{2,3})([A-Z])?$', drawing_part, re.IGNORECASE)
+    drawing_match = re.match(DRAWING_NUMBER_PATTERNS['old_drawing_number_pattern'], drawing_part, re.IGNORECASE)
     if not drawing_match:
         return None
 
@@ -387,4 +391,4 @@ def is_current_drawings_folder(folder_path):
     Returns True if folder name contains both "CURRENT" and "DRAWING" (case insensitive).
     """
     folder_name = Path(folder_path).name.upper()
-    return 'CURRENT' in folder_name and 'DRAWING' in folder_name
+    return all(kw in folder_name for kw in FOLDER_KEYWORDS['current_drawings'])
