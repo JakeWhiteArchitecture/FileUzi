@@ -32,7 +32,8 @@ jobs:
             libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-sync1 \
             libxcb-xfixes0 libxcb-xkb1 libxkbfile1 libnss3 \
-            libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libcairo2
+            libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libcairo2 \
+            libcairo2-dev libffi-dev pkg-config
 
       - name: Install Python dependencies
         run: |
