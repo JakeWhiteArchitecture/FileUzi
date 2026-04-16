@@ -1,0 +1,11 @@
+# FileUzi runtime dependencies
+PyQt6>=6.5
+pypdf>=4.0
+openpyxl>=3.1
+weasyprint>=60
+Pillow>=10.0
+
+# Test-time dependencies (install with pip install -r requirements.txt or
+# pip install pytest pytest-qt alongside the runtime set)
+pytest>=8.0
+pytest-qt>=4.2
