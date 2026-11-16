@@ -131,8 +131,9 @@ from fileuzi.services.email_composer import (
 class FilingWidget(QMainWindow):
     """Main filing widget window."""
 
-    def __init__(self):
+    def __init__(self, splash=None):
         super().__init__()
+        self._splash = splash
         self.dropped_files = []
         self.job_number = None
         self.project_name = None
@@ -157,11 +158,27 @@ class FilingWidget(QMainWindow):
         self.setMinimumSize(550, 750)
         self.setStyleSheet(f"background-color: {COLORS['surface']};")
 
+        self._splash_status("Loading projects...")
         if not self.load_projects_root():
             return  # Exit if CSV missing
+        self._splash_step(f"Projects loaded ({len(self.projects)} found)")
+
+        self._splash_status("Initialising database...")
         if not self.ensure_database():
             return  # Exit if database setup failed
+        self._splash_step("Database ready")
+
+        self._splash_status("Building interface...")
         self.setup_ui()
+        self._splash_step("Interface built")
+
+    def _splash_status(self, text):
+        if self._splash:
+            self._splash.set_status(text)
+
+    def _splash_step(self, text):
+        if self._splash:
+            self._splash.step_done(text)
 
     def load_projects_root(self):
         """Load projects root, scan for project folders, and load filing rules."""
@@ -172,6 +189,7 @@ class FilingWidget(QMainWindow):
         ensure_tools_folder(self.projects_root)
 
         # Load filing rules from CSV
+        self._splash_status("Loading filing rules...")
         self.filing_rules = load_filing_rules(self.projects_root)
         if self.filing_rules is None:
             tools_folder = get_tools_folder_path(self.projects_root)
@@ -183,9 +201,13 @@ class FilingWidget(QMainWindow):
                 "Please create the CSV file and restart the application."
             )
             sys.exit(1)
+        self._splash_step(f"Filing rules loaded ({len(self.filing_rules)} rules)")
 
         # Load custom project number mapping (optional - doesn't fail if missing)
+        self._splash_status("Loading project mapping...")
         self.project_mapping = load_project_mapping(self.projects_root)
+        if self.project_mapping:
+            self._splash_step(f"Project mapping loaded ({len(self.project_mapping) // 2} mappings)")
 
         return True
 
@@ -2993,13 +3015,22 @@ def main():
     font = QFont("Segoe UI", 10)
     app.setFont(font)
 
-    window = FilingWidget()
-    window.show()
+    # Show splash screen
+    from fileuzi.ui.splash import SplashScreen
+    splash = SplashScreen()
+    splash.show()
+    app.processEvents()
 
-    # Preload file if specified
-    if args.file and os.path.exists(args.file):
-        # Simulate a file drop
-        window.preload_file(args.file)
+    window = FilingWidget(splash=splash)
+
+    def _reveal():
+        window.show()
+        # Preload file if specified
+        if args.file and os.path.exists(args.file):
+            window.preload_file(args.file)
+
+    splash.set_status("Ready!")
+    splash.fade_out(on_finished=_reveal)
 
     sys.exit(app.exec())
 
