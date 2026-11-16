@@ -1,0 +1,8 @@
+PyQt6>=6.0
+
+# Optional: PDF generation (weasyprint preferred, xhtml2pdf fallback)
+weasyprint
+xhtml2pdf
+
+# Testing
+pytest

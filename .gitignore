@@ -23,3 +23,6 @@ build/
 # Local configuration
 *.local.py
 .env
+
+# Settings panel backup (auto-created on each save)
+fileuzi/config/settings.py.bak

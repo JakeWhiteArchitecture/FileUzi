@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime
 
 from fileuzi.utils import get_file_ops_logger, safe_write_attachment
+from fileuzi.config import PDF_EXTRACTION_RULES
 
 # Optional imports
 try:
@@ -49,22 +50,16 @@ def is_junk_pdf_line(line):
     """
     line = line.strip()
 
-    if len(line) < 5:
+    if len(line) < PDF_EXTRACTION_RULES['min_line_length']:
         return True
 
-    if re.match(r'^page\s+\d+(\s+of\s+\d+)?$', line, re.IGNORECASE):
+    if re.match(PDF_EXTRACTION_RULES['skip_page_footer_pattern'], line, re.IGNORECASE):
         return True
 
-    if re.match(r'^[\d\s.,\-/]+$', line):
+    if re.match(PDF_EXTRACTION_RULES['skip_numbers_only_pattern'], line):
         return True
 
-    date_patterns = [
-        r'^\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}$',
-        r'^\d{4}[/\-\.]\d{1,2}[/\-\.]\d{1,2}$',
-        r'^(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}$',
-        r'^\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}$',
-    ]
-    for pattern in date_patterns:
+    for pattern in PDF_EXTRACTION_RULES['date_patterns']:
         if re.match(pattern, line, re.IGNORECASE):
             return True
 
@@ -80,25 +75,14 @@ def is_valid_pdf_title(title, filename):
 
     title = title.strip()
 
-    if len(title) < 5:
+    if len(title) < PDF_EXTRACTION_RULES['min_title_length']:
         return False
 
     filename_base = filename.rsplit('.', 1)[0] if '.' in filename else filename
     if title.lower() == filename.lower() or title.lower() == filename_base.lower():
         return False
 
-    junk_patterns = [
-        r'^untitled(\s+document)?$',
-        r'^document\s*\d*$',
-        r'^microsoft\s+word\s*[-–]\s*',
-        r'^microsoft\s+excel\s*[-–]\s*',
-        r'^microsoft\s+powerpoint\s*[-–]\s*',
-        r'^adobe\s+(acrobat|reader)',
-        r'^new\s+document',
-        r'^temp\d*$',
-        r'^file\d*$',
-    ]
-    for pattern in junk_patterns:
+    for pattern in PDF_EXTRACTION_RULES['junk_title_patterns']:
         if re.match(pattern, title, re.IGNORECASE):
             return False
 
@@ -123,10 +107,13 @@ def extract_pdf_metadata_title(pdf_data):
     return None
 
 
-def extract_pdf_first_content(pdf_data, char_limit=40):
+def extract_pdf_first_content(pdf_data, char_limit=None):
     """
     Extract the first meaningful characters from page 1 of a PDF.
     """
+    if char_limit is None:
+        char_limit = PDF_EXTRACTION_RULES['char_limit_first_page']
+
     if not HAS_PYPDF:
         return None
 

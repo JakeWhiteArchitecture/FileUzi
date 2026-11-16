@@ -4,6 +4,8 @@ Circuit breaker for preventing runaway file operations.
 
 from pathlib import Path
 
+from fileuzi.config import OPERATION_LIMITS
+
 from .exceptions import CircuitBreakerTripped
 
 
@@ -56,7 +58,7 @@ class FileOperationCounter:
             # Check if this destination has a limit set
             if dest_folder in self.destination_limits:
                 # Allow small overhead (2) for edge cases like renamed duplicates
-                limit = self.destination_limits[dest_folder] + 2
+                limit = self.destination_limits[dest_folder] + OPERATION_LIMITS['circuit_breaker_overhead']
                 if actual_count > limit:
                     ops_summary = "\n".join([f"  {i+1}. {op[0]}: {op[1]} -> {op[2]}"
                                              for i, op in enumerate(self.operations)])

@@ -5,6 +5,8 @@ Job number detection functions for FileUzi.
 import re
 from pathlib import Path
 
+from fileuzi.config import JOB_NUMBER_PATTERNS, ATTACHMENT_FILTERING, EMAIL_PARSING_RULES
+
 
 def scan_projects_folder(projects_root):
     """
@@ -46,14 +48,14 @@ def parse_folder_name(folder_name):
         tuple: (job_number, project_name) or (None, None) if invalid
     """
     # Try dash format first: "2506 - SMITH EXTENSION"
-    match = re.match(r'^(\d{4,5})\s*[-–]\s*(.+)$', folder_name)
+    match = re.match(JOB_NUMBER_PATTERNS['folder_format_dash'], folder_name)
     if match:
         job_number = match.group(1)
         project_name = match.group(2).strip()
         return (job_number, project_name)
 
     # Try underscore format: "2506_SMITH-EXTENSION"
-    match = re.match(r'^(\d{4,5})_(.+)$', folder_name)
+    match = re.match(JOB_NUMBER_PATTERNS['folder_format_underscore'], folder_name)
     if match:
         job_number = match.group(1)
         project_name = match.group(2).strip()
@@ -80,17 +82,17 @@ def extract_job_number_from_filename(filename, project_mapping=None):
             # Check for patterns like B-012_... or B-012 - ...
             escaped = re.escape(custom_no)
             # Match prefix followed by underscore, space, or dash
-            pattern = rf'^{escaped}[\s_\-]'
+            pattern = rf'^{escaped}' + JOB_NUMBER_PATTERNS['custom_prefix_separator_class']
             if re.match(pattern, filename, re.IGNORECASE):
                 return local_no
 
     # Then check standard numeric pattern (underscore format)
-    match = re.match(r'^(\d{4,5})_', filename)
+    match = re.match(JOB_NUMBER_PATTERNS['filename_prefix_underscore'], filename)
     if match:
         return match.group(1)
 
     # Check old format: "2506 - 04A - PROPOSED PLANS.pdf"
-    match = re.match(r'^(\d{4,5})\s*[-–]\s*', filename)
+    match = re.match(JOB_NUMBER_PATTERNS['filename_prefix_dash'], filename)
     if match:
         return match.group(1)
 
@@ -132,13 +134,13 @@ def is_embedded_image(filename):
     base_name = name_lower.rsplit('.', 1)[0] if '.' in name_lower else name_lower
 
     # Pattern: 'image' followed by digits (with or without extension)
-    if re.match(r'^image\d+$', base_name):
+    if re.match(ATTACHMENT_FILTERING['embedded_image_patterns']['simple_image'], base_name):
         return True
     # Pattern: just a long number (with or without extension)
-    if re.match(r'^\d{10,}$', base_name):
+    if re.match(ATTACHMENT_FILTERING['embedded_image_patterns']['timestamp'], base_name):
         return True
     # Pattern: UUID-like or hash-like names
-    if re.match(r'^[a-f0-9\-]{20,}$', base_name):
+    if re.match(ATTACHMENT_FILTERING['embedded_image_patterns']['hash'], base_name):
         return True
     return False
 
@@ -174,7 +176,7 @@ def detect_project_from_subject(subject, known_projects, project_mapping=None):
     # Strip ALL RE:/FW:/Fwd: prefixes (handles multiple like "RE: RE: RE:")
     cleaned = subject
     while True:
-        new_cleaned = re.sub(r'^(RE|FW|Fwd):\s*', '', cleaned, count=1, flags=re.IGNORECASE).strip()
+        new_cleaned = re.sub(EMAIL_PARSING_RULES['subject_prefix_pattern'], '', cleaned, count=1, flags=re.IGNORECASE).strip()
         if new_cleaned == cleaned:
             break
         cleaned = new_cleaned
@@ -187,14 +189,14 @@ def detect_project_from_subject(subject, known_projects, project_mapping=None):
                 return local_no
 
     # Step 2: Look for 4-5 digit job number at the start
-    match = re.match(r'^(\d{4,5})\s*[-–]?\s*', cleaned)
+    match = re.match(JOB_NUMBER_PATTERNS['subject_prefix_pattern'], cleaned)
     if match:
         job_number = match.group(1)
         if job_number in known_job_numbers:
             return job_number
 
     # Step 3: Look for 4-5 digit number anywhere in subject
-    all_numbers = re.findall(r'\b(\d{4,5})\b', cleaned)
+    all_numbers = re.findall(JOB_NUMBER_PATTERNS['subject_anywhere_pattern'], cleaned)
     for num in all_numbers:
         if num in known_job_numbers:
             return num
