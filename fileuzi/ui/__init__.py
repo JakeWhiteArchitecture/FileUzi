@@ -9,6 +9,8 @@ from .widgets import (
     DroppableFilesFrame,
 )
 
+from .splash import SplashScreen
+
 from .dialogs import (
     SuccessDialog,
     DatabaseMissingDialog,
@@ -18,6 +20,8 @@ from .dialogs import (
 )
 
 __all__ = [
+    # Splash
+    'SplashScreen',
     # Widgets
     'FlowLayout',
     'ClickableWordLabel',
