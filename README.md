@@ -15,7 +15,7 @@
 
 FileUzi takes the pain out of filing project emails, attachments, and drawings. Drop a file or email, and it figures out the job number, the direction, the contact, the category, and where it should go. You confirm and click File.
 
-![Filing widget main view](assets/screenshots/widget-main.png)
+![Filing widget with files and rule chips](assets/screenshots/widget-main.png)
 
 ---
 
@@ -31,9 +31,6 @@ The main PyQt6 drag-and-drop interface. Handles emails, attachments, drawings, a
 - Files to dated import/export folders with secondary filing to category folders
 - Detects drawings and supersedes older revisions automatically
 
-![Email with attachments](assets/screenshots/widget-email.png)
-![File drop with rule chips](assets/screenshots/widget-files.png)
-
 ### 2. Right-Click Renamer (`workflows/fileuzi_rename.py`)
 
 A GNOME Files (Nautilus) script. Right-click a folder and rename it to the standard format:
@@ -47,8 +44,7 @@ A GNOME Files (Nautilus) script. Right-click a folder and rename it to the stand
 - Date from folder creation; prompts if files inside are dated differently
 - "Also File To" offers secondary filing using the same `filing_rules.csv`
 
-![Right-click menu](assets/screenshots/rename-context-menu.png)
-![Rename dialog](assets/screenshots/rename-dialog.png)
+<!-- Add your own screenshots: assets/screenshots/rename-context-menu.png, rename-dialog.png -->
 
 ### 3. Email Panel (`workflows/fileuzi_panel.py`)
 
@@ -59,7 +55,7 @@ A floating always-on-top window launched by the renamer when `.eml` files are se
 - Tick/untick attachments, edit the title block, press File
 - Filing happens in background while you review the next email
 
-![Email panel](assets/screenshots/panel-filing.png)
+<!-- Add your own screenshot: assets/screenshots/panel-filing.png -->
 
 ---
 
@@ -106,7 +102,7 @@ python3 workflows/model_ability_test.py --models ~/models/*.gguf --n 30
 
 Generates an HTML report comparing models by accuracy and speed.
 
-![Model test report](assets/screenshots/model-test-report.png)
+<!-- Add your own screenshot: assets/screenshots/model-test-report.png -->
 
 ---
 
@@ -151,8 +147,6 @@ Filing rules are configured in `filing_rules.csv` (in the `*FILING-WIDGET-TOOLS*
 
 Keywords trigger with word-boundary matching (so "OS" won't match inside "propOSed"). Multi-word phrases and fuzzy matching are supported. See `sample_filing_rules.csv` for the full template.
 
-![Filing rule chips on attachments](assets/screenshots/widget-chips.png)
-
 ### Custom Project Mapping
 
 Map client references to your internal job numbers in `custom_project_number_mapping.csv`:
@@ -182,7 +176,7 @@ When a new revision is filed to Current Drawings:
 2. Any older revision of the same drawing is moved to `Superseded/`
 3. Only the latest revision remains in Current Drawings
 
-![Drawing superseding](assets/screenshots/drawing-supersede.png)
+<!-- Add your own screenshot: assets/screenshots/drawing-supersede.png -->
 
 ---
 
