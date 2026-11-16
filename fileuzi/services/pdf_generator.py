@@ -300,7 +300,8 @@ def generate_email_pdf(email_data, embedded_images, job_number, projects_root):
 
     try:
         if HAS_WEASYPRINT:
-            html_obj = HTML(string=html_content)
+            _block_fetch = lambda url, **kw: {"string": "", "mime_type": "text/plain"}
+            html_obj = HTML(string=html_content, url_fetcher=_block_fetch)
             pdf_data = html_obj.write_pdf()
         elif HAS_XHTML2PDF:
             pdf_buffer = BytesIO()
