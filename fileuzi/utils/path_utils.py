@@ -4,10 +4,36 @@ Path validation and utility functions for FileUzi.
 
 import os
 import logging
+import re
 from pathlib import Path
 
 from fileuzi.config import FILING_WIDGET_TOOLS_FOLDER, OPERATIONS_LOG_FILENAME
 from .exceptions import PathJailViolation
+
+
+def sanitize_filename(name):
+    """
+    Strip directory components, control characters, and dangerous names
+    from a filename so it cannot escape its destination folder.
+
+    Returns a safe basename string, or 'unnamed_file' as a fallback.
+    """
+    if not name or not isinstance(name, str):
+        return 'unnamed_file'
+
+    # Normalise separators and take only the final component
+    name = Path(name.replace('\\', '/')).name
+
+    # Strip control characters (< 0x20) and DEL (0x7f)
+    name = re.sub(r'[\x00-\x1f\x7f]', '', name)
+
+    # Strip leading/trailing whitespace and dots (Windows-safe)
+    name = name.strip().strip('.')
+
+    if not name or name in ('.', '..'):
+        return 'unnamed_file'
+
+    return name
 
 
 def validate_path_jail(path, project_root):

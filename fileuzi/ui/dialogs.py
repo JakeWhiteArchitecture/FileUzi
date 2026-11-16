@@ -4,6 +4,12 @@ Dialog components for FileUzi.
 
 import os
 import re
+from pathlib import Path
+
+
+def _safe_log_str(s):
+    """Sanitize a string for logging to prevent log injection via control characters."""
+    return str(s).replace('\r', '').replace('\n', '')
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFileDialog
@@ -13,6 +19,7 @@ from PyQt6.QtGui import QDesktopServices
 
 from fileuzi.config import COLORS
 from fileuzi.database import get_database_path
+from fileuzi.utils import sanitize_filename
 from fileuzi.utils import get_file_ops_logger
 
 
@@ -352,17 +359,28 @@ class FileDuplicateDialog(QDialog):
 
     def on_rename(self):
         self.result_action = 'rename'
-        # Generate new filename with _v2 suffix (or increment if _v2 exists)
-        base, ext = os.path.splitext(self.filename)
+        safe_name = sanitize_filename(self.filename)
+        base, ext = os.path.splitext(safe_name)
         version_match = re.search(r'_v(\d+)$', base)
         if version_match:
             current_version = int(version_match.group(1))
             base = base[:version_match.start()]
-            self.new_filename = f"{base}_v{current_version + 1}{ext}"
+            version = current_version + 1
         else:
-            self.new_filename = f"{base}_v2{ext}"
+            version = 2
+
+        # Loop until we find a name that doesn't already exist at the destination
+        for _ in range(100):
+            candidate = f"{base}_v{version}{ext}"
+            if self.destination_folder:
+                candidate_path = Path(self.destination_folder) / candidate
+                if candidate_path.exists():
+                    version += 1
+                    continue
+            break
+        self.new_filename = candidate
         logger = get_file_ops_logger(self.projects_root)
-        logger.info(f"DUPLICATE RENAME | {self.filename} -> {self.new_filename}")
+        logger.info(f"DUPLICATE RENAME | {repr(self.filename)} -> {self.new_filename}")
         self.accept()
 
     def on_replace(self):
