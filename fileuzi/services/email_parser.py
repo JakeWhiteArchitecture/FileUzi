@@ -9,7 +9,7 @@ from email.utils import parsedate_to_datetime, parseaddr
 from datetime import datetime
 
 from fileuzi.config import MY_EMAIL_ADDRESSES, SIGN_OFF_PATTERNS, DOMAIN_SUFFIXES, EMAIL_PARSING_RULES
-from fileuzi.utils import HTMLTextExtractor
+from fileuzi.utils import HTMLTextExtractor, sanitize_filename
 
 
 def extract_email_body(msg):
@@ -213,7 +213,7 @@ def parse_eml_file(eml_path):
             continue  # Skip - will be handled by extract_embedded_images
 
         if content_disposition == 'attachment' or (content_disposition == 'inline' and part.get_filename()):
-            filename = part.get_filename()
+            filename = sanitize_filename(part.get_filename())
             if filename:
                 data = part.get_payload(decode=True)
                 if data:

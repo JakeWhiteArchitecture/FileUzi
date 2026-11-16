@@ -3,6 +3,7 @@
 from .exceptions import PathJailViolation, CircuitBreakerTripped
 from .circuit_breaker import FileOperationCounter, get_circuit_breaker
 from .path_utils import (
+    sanitize_filename,
     validate_path_jail,
     get_tools_folder_path,
     ensure_tools_folder,
@@ -17,6 +18,7 @@ __all__ = [
     'CircuitBreakerTripped',
     'FileOperationCounter',
     'get_circuit_breaker',
+    'sanitize_filename',
     'validate_path_jail',
     'get_tools_folder_path',
     'ensure_tools_folder',

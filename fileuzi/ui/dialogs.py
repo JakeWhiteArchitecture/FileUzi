@@ -4,6 +4,12 @@ Dialog components for FileUzi.
 
 import os
 import re
+from pathlib import Path
+
+
+def _safe_log_str(s):
+    """Sanitize a string for logging to prevent log injection via control characters."""
+    return str(s).replace('\r', '').replace('\n', '')
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFileDialog
@@ -13,6 +19,7 @@ from PyQt6.QtGui import QDesktopServices
 
 from fileuzi.config import COLORS
 from fileuzi.database import get_database_path
+from fileuzi.utils import sanitize_filename
 from fileuzi.utils import get_file_ops_logger
 
 
@@ -347,22 +354,33 @@ class FileDuplicateDialog(QDialog):
     def on_skip(self):
         self.result_action = 'skip'
         logger = get_file_ops_logger(self.projects_root)
-        logger.info(f"DUPLICATE SKIP | {self.filename} | Existing at: {self.duplicate_locations[0]}")
+        logger.info(f"DUPLICATE SKIP | {_safe_log_str(self.filename)} | Existing at: {_safe_log_str(self.duplicate_locations[0])}")
         self.accept()
 
     def on_rename(self):
         self.result_action = 'rename'
-        # Generate new filename with _v2 suffix (or increment if _v2 exists)
-        base, ext = os.path.splitext(self.filename)
+        safe_name = sanitize_filename(self.filename)
+        base, ext = os.path.splitext(safe_name)
         version_match = re.search(r'_v(\d+)$', base)
         if version_match:
             current_version = int(version_match.group(1))
             base = base[:version_match.start()]
-            self.new_filename = f"{base}_v{current_version + 1}{ext}"
+            version = current_version + 1
         else:
-            self.new_filename = f"{base}_v2{ext}"
+            version = 2
+
+        # Loop until we find a name that doesn't already exist at the destination
+        for _ in range(100):
+            candidate = f"{base}_v{version}{ext}"
+            if self.destination_folder:
+                candidate_path = Path(self.destination_folder) / candidate
+                if candidate_path.exists():
+                    version += 1
+                    continue
+            break
+        self.new_filename = candidate
         logger = get_file_ops_logger(self.projects_root)
-        logger.info(f"DUPLICATE RENAME | {self.filename} -> {self.new_filename}")
+        logger.info(f"DUPLICATE RENAME | {_safe_log_str(self.filename)} -> {_safe_log_str(self.new_filename)}")
         self.accept()
 
     def on_replace(self):
@@ -370,8 +388,8 @@ class FileDuplicateDialog(QDialog):
         self.replace_target = self.duplicate_locations[0]
         logger = get_file_ops_logger(self.projects_root)
         logger.info(
-            f"DUPLICATE REPLACE | {self.filename} | "
-            f"Superseding: {self.duplicate_locations[0]}"
+            f"DUPLICATE REPLACE | {_safe_log_str(self.filename)} | "
+            f"Superseding: {_safe_log_str(self.duplicate_locations[0])}"
         )
         self.accept()
 
@@ -485,8 +503,8 @@ class DifferentLocationDuplicateDialog(QDialog):
         self.result_action = 'skip'
         logger = get_file_ops_logger(self.projects_root)
         logger.info(
-            f"DUPLICATE SKIP | {self.filename} | "
-            f"Existing at: {self.existing_path}"
+            f"DUPLICATE SKIP | {_safe_log_str(self.filename)} | "
+            f"Existing at: {_safe_log_str(self.existing_path)}"
         )
         self.accept()
 
@@ -494,8 +512,8 @@ class DifferentLocationDuplicateDialog(QDialog):
         self.result_action = 'proceed'
         logger = get_file_ops_logger(self.projects_root)
         logger.info(
-            f"DUPLICATE KEEP BOTH | {self.filename} | "
-            f"Existing: {self.existing_path}, New: {self.new_destination}"
+            f"DUPLICATE KEEP BOTH | {_safe_log_str(self.filename)} | "
+            f"Existing: {_safe_log_str(self.existing_path)}, New: {_safe_log_str(self.new_destination)}"
         )
         self.accept()
 
@@ -504,7 +522,7 @@ class DifferentLocationDuplicateDialog(QDialog):
         self.replace_target = self.existing_path
         logger = get_file_ops_logger(self.projects_root)
         logger.info(
-            f"DUPLICATE REPLACE DIFFERENT | {self.filename} | "
-            f"Superseding: {self.existing_path}, Filing to: {self.new_destination}"
+            f"DUPLICATE REPLACE DIFFERENT | {_safe_log_str(self.filename)} | "
+            f"Superseding: {_safe_log_str(self.existing_path)}, Filing to: {_safe_log_str(self.new_destination)}"
         )
         self.accept()

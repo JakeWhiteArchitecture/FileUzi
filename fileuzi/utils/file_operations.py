@@ -10,6 +10,11 @@ from .circuit_breaker import get_circuit_breaker
 from .path_utils import validate_path_jail, get_file_ops_logger
 
 
+def _safe_log_path(p):
+    """Sanitize a path for logging to prevent log injection via control characters."""
+    return str(p).replace('\r', '').replace('\n', '')
+
+
 def safe_copy(src, dst, projects_root, circuit_breaker=None):
     """
     Safely copy a file with path jail validation, circuit breaker, and logging.
@@ -46,15 +51,15 @@ def safe_copy(src, dst, projects_root, circuit_breaker=None):
 
         if src_path.is_dir():
             shutil.copytree(str(src_path), str(dst_path))
-            logger.info(f"COPY DIR | {src_path} -> {dst_path}")
+            logger.info(f"COPY DIR | {_safe_log_path(src_path)} -> {_safe_log_path(dst_path)}")
         else:
             shutil.copy2(str(src_path), str(dst_path))
-            logger.info(f"COPY | {src_path} -> {dst_path}")
+            logger.info(f"COPY | {_safe_log_path(src_path)} -> {_safe_log_path(dst_path)}")
         return True
     except (PathJailViolation, CircuitBreakerTripped):
         raise  # Re-raise safety exceptions
     except Exception as e:
-        logger.error(f"COPY FAILED | {src_path} -> {dst_path} | Error: {e}")
+        logger.error(f"COPY FAILED | {_safe_log_path(src_path)} -> {_safe_log_path(dst_path)} | Error: {e}")
         return False
 
 
@@ -91,12 +96,12 @@ def safe_move(src, dst, projects_root, circuit_breaker=None):
         dst_path.parent.mkdir(parents=True, exist_ok=True)
 
         shutil.move(str(src_path), str(dst_path))
-        logger.info(f"MOVE | {src_path} -> {dst_path}")
+        logger.info(f"MOVE | {_safe_log_path(src_path)} -> {_safe_log_path(dst_path)}")
         return True
     except (PathJailViolation, CircuitBreakerTripped):
         raise  # Re-raise safety exceptions
     except Exception as e:
-        logger.error(f"MOVE FAILED | {src_path} -> {dst_path} | Error: {e}")
+        logger.error(f"MOVE FAILED | {_safe_log_path(src_path)} -> {_safe_log_path(dst_path)} | Error: {e}")
         return False
 
 
@@ -134,10 +139,10 @@ def safe_write_attachment(dst, data, projects_root, source_description="email at
 
         with open(dst_path, 'wb') as f:
             f.write(data)
-        logger.info(f"WRITE | {source_description} -> {dst_path}")
+        logger.info(f"WRITE | {_safe_log_path(source_description)} -> {_safe_log_path(dst_path)}")
         return True
     except (PathJailViolation, CircuitBreakerTripped):
         raise  # Re-raise safety exceptions
     except Exception as e:
-        logger.error(f"WRITE FAILED | {source_description} -> {dst_path} | Error: {e}")
+        logger.error(f"WRITE FAILED | {_safe_log_path(source_description)} -> {_safe_log_path(dst_path)} | Error: {e}")
         return False
