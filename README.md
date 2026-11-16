@@ -1,170 +1,294 @@
-# FileUzi
+<p align="center">
+  <img src="assets/fileuzi_logo.png" width="280" alt="FileUzi logo">
+</p>
 
-A PyQt6-based document filing widget designed for architectural practices. FileUzi streamlines the process of filing emails, attachments, and documents into structured project folders.
+<h1 align="center">FileUzi</h1>
+
+<p align="center">
+  Document filing for architectural practices — drag, detect, file.<br>
+  Three tools that work together: a <b>drag-and-drop widget</b>, a <b>right-click renamer</b>, and an <b>AI-powered email panel</b>.
+</p>
+
+---
+
+## What It Does
+
+FileUzi takes the pain out of filing project emails, attachments, and drawings. Drop a file or email, and it figures out the job number, the direction, the contact, the category, and where it should go. You confirm and click File.
+
+![Filing widget main view](assets/screenshots/widget-main.png)
+
+---
+
+## The Three Tools
+
+### 1. Filing Widget (`filing_widget.py`)
+
+The main PyQt6 drag-and-drop interface. Handles emails, attachments, drawings, and regular files.
+
+- Drag `.eml` files or folders onto the widget
+- Auto-detects job number from filenames, email subjects, and custom project mappings
+- Matches attachments against filing rules (Planning, Ecology, Fire Engineer, Surveys, Invoices, etc.)
+- Files to dated import/export folders with secondary filing to category folders
+- Detects drawings and supersedes older revisions automatically
+
+![Email with attachments](assets/screenshots/widget-email.png)
+![File drop with rule chips](assets/screenshots/widget-files.png)
+
+### 2. Right-Click Renamer (`workflows/fileuzi_rename.py`)
+
+A GNOME Files (Nautilus) script. Right-click a folder and rename it to the standard format:
+
+```
+2505_IN_15-11-2026_SMITH_STRUCTURAL CALCULATIONS
+```
+
+- Symlink into `~/.local/share/nautilus/scripts` as "File IN", "File OUT", "Also File To", "File Emails"
+- Description pre-filled from files inside: keyword rules first, then AI if available
+- Date from folder creation; prompts if files inside are dated differently
+- "Also File To" offers secondary filing using the same `filing_rules.csv`
+
+![Right-click menu](assets/screenshots/rename-context-menu.png)
+![Rename dialog](assets/screenshots/rename-dialog.png)
+
+### 3. Email Panel (`workflows/fileuzi_panel.py`)
+
+A floating always-on-top window launched by the renamer when `.eml` files are selected. Processes emails in the background, one ahead of the one on screen.
+
+- Shows email metadata, body preview, and attachments
+- AI-generated description (if LLM available)
+- Tick/untick attachments, edit the title block, press File
+- Filing happens in background while you review the next email
+
+![Email panel](assets/screenshots/panel-filing.png)
+
+---
+
+## AI Integration
+
+FileUzi uses local AI models for description writing and document classification. All inference runs **offline** with **no telemetry** — network access is blocked at the OS level.
+
+### Language Model (Description Writer)
+
+The renamer and email panel use a small language model to write one-line folder descriptions from email content:
+
+```
+Email: "Hi Jake, please find attached the structural engineer's calculations for the rear extension."
+  →  STRUCTURAL CALCULATIONS FOR REAR EXTENSION
+```
+
+- **Model**: LFM2.5-1.2B-Instruct (1.2 billion parameters, ~700MB GGUF)
+- **Runtime**: llama.cpp (`llama-server`) with OpenAI-compatible API
+- **Learning**: Uses your 8 most recent filings as worked examples — it learns your style
+- **Fallback**: If no model installed, falls back to keyword rules, then to manual entry
+
+### Embedding Model (Keyword Matching)
+
+For files that don't match any keyword rule, a tiny embedding model finds the closest category:
+
+- **Model**: Bekko (ONNX, ~30MB) — semantic similarity between filenames and filing categories
+- **Runtime**: ONNX Runtime (CPU only, 1 thread)
+- **Install**: `pip install onnxruntime tokenizers` then `python3 fileuzi_rename.py --download-model`
+
+### Vision Model (PDF Classification)
+
+When a PDF doesn't match by name or keywords, page 1 is rendered and classified by image:
+
+- **Model**: Mirage — a vision classifier for document types
+- **Use case**: Distinguishes drawings from reports, letters from certificates
+
+### Model Ability Test (`workflows/model_ability_test.py`)
+
+Scores any GGUF model against your real filings and 12 built-in test emails:
+
+```bash
+python3 workflows/model_ability_test.py --models ~/models/*.gguf --n 30
+```
+
+Generates an HTML report comparing models by accuracy and speed.
+
+![Model test report](assets/screenshots/model-test-report.png)
+
+---
+
+## Bubblewrap Sandbox
+
+All AI models run inside a **bubblewrap** (`bwrap`) sandbox with:
+
+- **No network** — empty network namespace, no internet access
+- **Read-only filesystem** — only system files, Python packages, the script, and the model folder
+- **No home directory** — no access to your projects, documents, or personal files
+- **No writes** — except to a tmpfs and the LLM cache folder
+- **Process isolation** — `--unshare-all`, `--die-with-parent`, `--new-session`
+
+```
+bwrap --unshare-all --die-with-parent --new-session \
+      --ro-bind /usr /usr --ro-bind /etc /etc \
+      --proc /proc --dev /dev --tmpfs /tmp \
+      --ro-bind ~/models ~/models \
+      llama-server -m model.gguf ...
+```
+
+If bubblewrap isn't installed, the LLM is **not used** (it refuses to run unsandboxed). A warning is shown:
+
+> WARNING: The AI model is NOT running inside bubblewrap.
+> Check: `which bwrap` (install: `sudo dnf install bubblewrap`)
+
+PDF rendering (WeasyPrint) also runs inside bubblewrap when generating email PDFs, with external resource fetching disabled.
+
+---
+
+## Filing Rules
+
+Filing rules are configured in `filing_rules.csv` (in the `*FILING-WIDGET-TOOLS*` folder):
+
+| Keywords | Folder Type | Colour | Folder Location |
+|----------|------------|--------|-----------------|
+| Planning, CIL, DAS, Heritage... | Planning | `#3b82f6` | `/XXXX_ADMIN/XXXX_P_PLANNING` |
+| Ecology, Bat, BNG, Wildlife... | Ecology | `#10b981` | `/XXXX_ADMIN/XXXX_E_ECOLOGY` |
+| Fire, Part B, Sprinkler... | Fire Engineer | `#ef4444` | `/XXXX_ADMIN/XXXX_F_FIRE_ENGINEERING` |
+| Survey, Topo, OS, Drone... | Surveys | `#8b5cf6` | `/XXXX_SURVEYS` |
+| Invoice (+ INV###.pdf pattern) | Invoices | `#d946ef` | `/XXXX_ADMIN/XXXX_A_CLIENT/XXXX_INVOICES` |
+
+Keywords trigger with word-boundary matching (so "OS" won't match inside "propOSed"). Multi-word phrases and fuzzy matching are supported. See `sample_filing_rules.csv` for the full template.
+
+![Filing rule chips on attachments](assets/screenshots/widget-chips.png)
+
+### Custom Project Mapping
+
+Map client references to your internal job numbers in `custom_project_number_mapping.csv`:
+
+```csv
+Custom Project No:,Local Project No:
+B-012,2505
+B-013,2507
+```
+
+Files named `B-012 - 120 - Detail A.pdf` are automatically recognised as drawings for job 2505.
+
+---
+
+## Drawing Management
+
+FileUzi recognises drawing files by naming convention:
+
+| Format | Example |
+|--------|---------|
+| New (underscore) | `2506_22_PROPOSED FLOOR PLANS_C01.pdf` |
+| Old (dash) | `2502 - 104 - BUILDING REGULATIONS NOTES_P01.pdf` |
+| Custom prefix | `B-012 - 120 - Detail A.pdf` |
+
+When a new revision is filed to Current Drawings:
+1. The new file is copied in
+2. Any older revision of the same drawing is moved to `Superseded/`
+3. Only the latest revision remains in Current Drawings
+
+![Drawing superseding](assets/screenshots/drawing-supersede.png)
+
+---
+
+## Security
+
+### Path Safety
+- **Path jail** — every file operation validates the destination is within `projects_root`
+- **Filename sanitisation** — email attachment names are stripped of directory components, control characters, and `.`/`..`
+- **Circuit breaker** — caps file operations per action to prevent runaway bulk operations
+- **Exclusive create** — the renamer uses `open(target, "xb")` to never overwrite existing files
+
+### Input Safety
+- **SQL** — all database queries use parameterised `?` placeholders
+- **Subprocess** — all calls use list form (no `shell=True`)
+- **Regex** — user values escaped with `re.escape()` before interpolation
+- **HTML** — email content sanitised before PDF rendering; dangerous tags and external resources stripped
+- **PDF renderer** — WeasyPrint runs with a null URL fetcher (no external resource loading)
+
+### Audit Trail
+- Every copy, move, and write is logged with source and destination
+- Duplicate decisions (skip/rename/replace) are logged
+- Log entries are sanitised against control character injection
+
+### No Hard Deletes
+- The widget **copies** files (originals stay where they are)
+- The renamer sends to the **recycle bin** (`gio trash`), never `rm`
+- Old drawing revisions are **moved to Superseded**, not deleted
+- Database has a backup file alongside the main database
+
+---
+
+## Installation
+
+### Requirements
+- Python 3.10+
+- PyQt6 (`sudo dnf install python3-pyqt6` or `pip install PyQt6`)
+- Linux (GNOME Files for the renamer; the widget works anywhere with PyQt6)
+
+### Optional
+| Package | For |
+|---------|-----|
+| `weasyprint` | PDF generation from emails |
+| `onnxruntime` + `tokenizers` | AI keyword matching (Bekko model) |
+| `bubblewrap` | Sandbox for AI models (`sudo dnf install bubblewrap`) |
+| `llama.cpp` | LLM description writer (build from source) |
+
+### Setup
+
+```bash
+# Clone
+git clone https://github.com/JakeWhiteArchitecture/FileUzi.git
+cd FileUzi
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the widget
+python filing_widget.py
+
+# (Optional) Set up the renamer as Nautilus scripts
+cd workflows
+ln -s "$(pwd)/fileuzi_rename.py" ~/.local/share/nautilus/scripts/"File IN"
+ln -s "$(pwd)/fileuzi_rename.py" ~/.local/share/nautilus/scripts/"File OUT"
+ln -s "$(pwd)/fileuzi_rename.py" ~/.local/share/nautilus/scripts/"Also File To"
+ln -s "$(pwd)/fileuzi_rename.py" ~/.local/share/nautilus/scripts/"File Emails"
+
+# (Optional) Download AI models
+python3 workflows/fileuzi_rename.py --download-model
+```
+
+---
+
+## Project Structure
+
+```
+FileUzi/
+  filing_widget.py              # Main drag-and-drop filing widget
+  fileuzi/
+    config/                     # Settings, colours, constants
+    database/                   # SQLite contacts and filing records
+    services/                   # Email parsing, PDF gen, filing rules, drawing management
+    ui/                         # Dialogs, widgets, flow layout
+    utils/                      # Path jail, circuit breaker, file operations
+  workflows/
+    fileuzi_rename.py           # GNOME right-click rename tool + AI
+    fileuzi_panel.py            # Floating email filing panel
+    model_ability_test.py       # LLM model scoring tool
+  assets/
+    fileuzi_logo.png            # Logo
+    screenshots/                # App screenshots
+  tests/                        # 347 pytest tests
+  sample_filing_rules.csv       # Example filing rules template
+  sample_custom_project_number_mapping.csv  # Example project mapping
+```
+
+---
 
 ## Disclaimer
 
 This software is provided for informational and educational purposes only. The authors, Jake White and Claude AI (Anthropic), accept no responsibility or liability for any errors, omissions, or damages arising from the use of this software. Users are solely responsible for verifying the suitability of this software for their intended purpose and for any consequences of its use. Use at your own risk.
 
-## Features
-
-### Email Processing
-- **Email Parsing**: Extracts metadata (from, to, cc, date, subject), body text, and attachments from `.eml` files
-- **Direction Detection**: Automatically detects IN (received) vs OUT (sent) emails based on configured email addresses
-- **Attachment Extraction**: Lists all attachments with size filtering (ignores small signature images by default)
-- **Embedded Image Detection**: Identifies images embedded in HTML emails (screenshots, inline images)
-
-### Document Filing
-- **Drag & Drop Support**: Drop emails or files directly into the widget
-- **Job Number Detection**: Automatically extracts job numbers from:
-  - Filenames (e.g., `2505_drawing.pdf`)
-  - Email subjects (e.g., "RE: 2505 - Project Update")
-  - Custom project mappings (e.g., `B-013` → `2507`)
-- **Project Folder Navigation**: Auto-navigates to correct project folder based on detected job number
-- **Date-organised Filing**: Files to dated import/export folders organised by month and direction
-
-### Drawing Management
-- **Drawing Detection**: Recognises architectural drawing files by naming patterns
-- **Current Drawings Filing**: Option to file drawings to project's Current Drawings folder
-- **Automatic Superseding**: When filing a new revision, automatically moves older versions to Superseded folder
-
-### Print Email to PDF
-- **Toggle Visibility**: Only appears when email contains embedded images >20KB
-- **Full Email Rendering**: Generates PDF with email headers and HTML body
-- **Embedded Image Preservation**: Converts inline image references to embedded images in the PDF
-- **Structured Naming**: Generates descriptive filename from job number, date, and subject
-
-### Duplicate Handling
-- **Project-wide Scanning**: Checks entire project folder tree for existing files
-- **Conflict Resolution Dialog**: Options to skip, rename with version suffix, or overwrite
-- **Logging**: All duplicate decisions are logged
-
-### Secondary Filing
-- **Multiple Destinations**: File attachments to additional locations beyond the primary destination
-- **Rule-based Routing**: Configure filing rules based on file type or folder structure
-- **Subfolder Creation**: Supports dynamic subfolder creation with placeholders
-
-### Safety Features
-- **Circuit Breaker**: Prevents runaway file operations with per-destination limits
-- **Safe Write Operations**: Atomic writes with proper error handling
-- **Operation Logging**: All file operations logged for audit purposes
-
----
-
-## Workflows
-
-### Workflow 1: Filing an Incoming Email with Attachments
-
-1. Drag the `.eml` file onto FileUzi
-2. FileUzi parses the email and displays metadata, direction, and attachments
-3. Job number is auto-detected from subject line or attachment names
-4. Project folder auto-populates based on job number
-5. Select which attachments to file
-6. Optionally add secondary destinations for specific files
-7. Click "File" - files are copied to the dated import folder
-8. If duplicate detected, choose to skip, rename, or overwrite
-
-### Workflow 2: Filing Outbound Email with Embedded Screenshots
-
-1. Drag your sent `.eml` file onto FileUzi
-2. FileUzi detects direction (OUT) and embedded images
-3. "Print Email to PDF" toggle appears
-4. Click "File" - PDF is generated with all embedded images preserved
-5. PDF is filed to the dated export folder
-
-### Workflow 3: Filing a New Drawing Revision
-
-1. Drag the drawing PDF onto FileUzi
-2. FileUzi detects it's a drawing file
-3. Add "Current Drawings" as secondary destination
-4. Click "File"
-5. Drawing filed to primary location and Current Drawings
-6. Older revision automatically moved to Superseded folder
-
-### Workflow 4: Filing with Custom Project Mapping
-
-1. Configure `project_mapping.csv` with client references mapped to your job numbers
-2. Drag email or file with client reference in the name/subject
-3. FileUzi resolves to your internal job number
-4. File as normal
-
-### Workflow 5: Batch Filing Multiple Files
-
-1. Drag multiple files onto FileUzi
-2. All files listed with checkboxes - select/deselect as needed
-3. Job number detected from first matching file
-4. Add secondary destinations for specific files
-5. Click "File" - all selected files copied to destination
-
-### Workflow 6: Handling Duplicate Files
-
-1. Drag file onto FileUzi and click "File"
-2. If duplicate detected, dialog shows filename and existing locations
-3. Choose: Skip, Rename (adds `_v2` suffix), or Overwrite
-4. Decision is logged for audit trail
-
----
-
-## User Stories
-
-1. **I want to** drag an email onto a widget **so that** I can quickly file it to the correct project folder without manual navigation.
-
-2. **I want** job numbers auto-detected **so that** I don't have to manually look up which project an email belongs to.
-
-3. **I want to** file drawings to Current Drawings **so that** the latest revisions are always in the right place.
-
-4. **I want** old drawing revisions automatically superseded **so that** Current Drawings always contains only the latest versions.
-
-5. **I want** a PDF version of emails with embedded images **so that** visual information isn't lost when archiving.
-
-6. **I want** duplicate file warnings **so that** I don't accidentally overwrite important documents.
-
-7. **I want** client project references mapped to our job numbers **so that** I can file documents regardless of how they're labelled.
-
-8. **I want to** file documents to multiple locations **so that** they're accessible in both the archive and category folders.
-
-9. **I want** all filing operations logged **so that** I can audit what was filed and when.
-
-10. **I want** small signature images auto-ignored **so that** I don't clutter the project with unnecessary files.
-
----
-
-## Configuration
-
-### Email Addresses
-Configure your email addresses for IN/OUT detection:
-```python
-MY_EMAIL_ADDRESSES = [
-    "you@yourcompany.com",
-]
-```
-
-### Project Mapping CSV
-Create `project_mapping.csv` for custom project references:
-```csv
-custom_reference,local_job
-CLIENT-001,2505
-B-013,2507
-```
-
-### Minimum Attachment Size
-Adjust the threshold for auto-selecting attachments (default 3KB to skip signature images).
-
----
-
-## Dependencies
-
-### Required
-- Python 3.9+
-- PyQt6
-
-### Optional (for PDF generation)
-- `weasyprint` (preferred)
-- `xhtml2pdf` (fallback)
-
----
-
 ## Authors
 
-- **Jake White** - Architecture & Design
-- **Claude AI (Anthropic)** - Code Implementation
+- **Jake White** — Architecture and Design
+- **Claude AI (Anthropic)** — Code Implementation
+
+## Licence
+
+See [LICENSE](LICENSE) for details.
