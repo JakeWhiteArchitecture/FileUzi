@@ -354,7 +354,7 @@ class FileDuplicateDialog(QDialog):
     def on_skip(self):
         self.result_action = 'skip'
         logger = get_file_ops_logger(self.projects_root)
-        logger.info(f"DUPLICATE SKIP | {self.filename} | Existing at: {self.duplicate_locations[0]}")
+        logger.info(f"DUPLICATE SKIP | {_safe_log_str(self.filename)} | Existing at: {_safe_log_str(self.duplicate_locations[0])}")
         self.accept()
 
     def on_rename(self):
@@ -380,7 +380,7 @@ class FileDuplicateDialog(QDialog):
             break
         self.new_filename = candidate
         logger = get_file_ops_logger(self.projects_root)
-        logger.info(f"DUPLICATE RENAME | {repr(self.filename)} -> {self.new_filename}")
+        logger.info(f"DUPLICATE RENAME | {_safe_log_str(self.filename)} -> {_safe_log_str(self.new_filename)}")
         self.accept()
 
     def on_replace(self):
@@ -388,8 +388,8 @@ class FileDuplicateDialog(QDialog):
         self.replace_target = self.duplicate_locations[0]
         logger = get_file_ops_logger(self.projects_root)
         logger.info(
-            f"DUPLICATE REPLACE | {self.filename} | "
-            f"Superseding: {self.duplicate_locations[0]}"
+            f"DUPLICATE REPLACE | {_safe_log_str(self.filename)} | "
+            f"Superseding: {_safe_log_str(self.duplicate_locations[0])}"
         )
         self.accept()
 
@@ -503,8 +503,8 @@ class DifferentLocationDuplicateDialog(QDialog):
         self.result_action = 'skip'
         logger = get_file_ops_logger(self.projects_root)
         logger.info(
-            f"DUPLICATE SKIP | {self.filename} | "
-            f"Existing at: {self.existing_path}"
+            f"DUPLICATE SKIP | {_safe_log_str(self.filename)} | "
+            f"Existing at: {_safe_log_str(self.existing_path)}"
         )
         self.accept()
 
@@ -512,8 +512,8 @@ class DifferentLocationDuplicateDialog(QDialog):
         self.result_action = 'proceed'
         logger = get_file_ops_logger(self.projects_root)
         logger.info(
-            f"DUPLICATE KEEP BOTH | {self.filename} | "
-            f"Existing: {self.existing_path}, New: {self.new_destination}"
+            f"DUPLICATE KEEP BOTH | {_safe_log_str(self.filename)} | "
+            f"Existing: {_safe_log_str(self.existing_path)}, New: {_safe_log_str(self.new_destination)}"
         )
         self.accept()
 
@@ -522,7 +522,7 @@ class DifferentLocationDuplicateDialog(QDialog):
         self.replace_target = self.existing_path
         logger = get_file_ops_logger(self.projects_root)
         logger.info(
-            f"DUPLICATE REPLACE DIFFERENT | {self.filename} | "
-            f"Superseding: {self.existing_path}, Filing to: {self.new_destination}"
+            f"DUPLICATE REPLACE DIFFERENT | {_safe_log_str(self.filename)} | "
+            f"Superseding: {_safe_log_str(self.existing_path)}, Filing to: {_safe_log_str(self.new_destination)}"
         )
         self.accept()

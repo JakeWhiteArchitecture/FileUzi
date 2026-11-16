@@ -185,6 +185,22 @@ def convert_image_to_png(image_data):
         return image_data
 
 
+def _sanitize_html_for_pdf(html_str):
+    """Strip dangerous tags, event handlers, and external resource URLs from HTML."""
+    html_str = re.sub(r'<\s*script[^>]*>.*?</\s*script\s*>', '', html_str, flags=re.DOTALL | re.IGNORECASE)
+    html_str = re.sub(r'<\s*iframe[^>]*>.*?</\s*iframe\s*>', '', html_str, flags=re.DOTALL | re.IGNORECASE)
+    html_str = re.sub(r'<\s*object[^>]*>.*?</\s*object\s*>', '', html_str, flags=re.DOTALL | re.IGNORECASE)
+    html_str = re.sub(r'<\s*embed[^>]*/?>', '', html_str, flags=re.IGNORECASE)
+    html_str = re.sub(r'<\s*form[^>]*>.*?</\s*form\s*>', '', html_str, flags=re.DOTALL | re.IGNORECASE)
+    html_str = re.sub(r'<\s*input[^>]*/?>', '', html_str, flags=re.IGNORECASE)
+    html_str = re.sub(r'\s+on\w+\s*=\s*(["\']).*?\1', '', html_str, flags=re.IGNORECASE)
+    html_str = re.sub(r'\s+on\w+\s*=\s*\S+', '', html_str, flags=re.IGNORECASE)
+    html_str = re.sub(
+        r'(<\s*(?:img|link|source|video|audio)\b[^>]*?\s)(src|href)\s*=\s*(["\'])https?://[^"\']*\3',
+        r'\1\2=\3\3', html_str, flags=re.IGNORECASE)
+    return html_str
+
+
 def clean_subject_for_filename(subject, job_number):
     """
     Clean email subject for use as filename.
@@ -200,10 +216,10 @@ def clean_subject_for_filename(subject, job_number):
 
         if first_part.startswith(job_number):
             cleaned = parts[1] if len(parts) > 1 else first_part
-        elif re.match(rf'^{job_number}\s+\w+', first_part):
+        elif re.match(rf'^{re.escape(job_number)}\s+\w+', first_part):
             cleaned = parts[1] if len(parts) > 1 else first_part
 
-    cleaned = re.sub(rf'^{job_number}\s*[-:]?\s*', '', cleaned)
+    cleaned = re.sub(rf'^{re.escape(job_number)}\s*[-:]?\s*', '', cleaned)
     cleaned = re.sub(r'[<>:"/\\|?*]', '', cleaned)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
 
@@ -261,6 +277,8 @@ def generate_email_pdf(email_data, embedded_images, job_number, projects_root):
             body_html = body_match.group(1)
         else:
             body_html = body_content
+
+        body_html = _sanitize_html_for_pdf(body_html)
     else:
         body_text = email_data.get('body', '')
         body_html = html_module.escape(body_text).replace('\n', '<br>')
