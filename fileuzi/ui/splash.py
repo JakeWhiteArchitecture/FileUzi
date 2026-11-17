@@ -3,8 +3,8 @@ Splash screen for FileUzi — logo fades to reveal loading progress.
 """
 from pathlib import Path
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QGraphicsOpacityEffect, QApplication
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QEventLoop
 from PyQt6.QtGui import QPixmap, QFont, QColor, QPainter
 
 LOGO_PATH = Path(__file__).parent.parent.parent / "assets" / "fileuzi_logo.png"
@@ -75,7 +75,6 @@ class SplashScreen(QWidget):
         self.setGraphicsEffect(self._opacity)
 
     def _center_on_screen(self):
-        from PyQt6.QtWidgets import QApplication
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
@@ -83,17 +82,24 @@ class SplashScreen(QWidget):
             y = (geo.height() - self.height()) // 2 + geo.y()
             self.move(x, y)
 
+    def _flush_paint(self):
+        """Process only paint/timer events — no user input, no reentrancy risk."""
+        QApplication.processEvents(
+            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+            | QEventLoop.ProcessEventsFlag.ExcludeSocketNotifiers
+        )
+
     def set_status(self, text):
-        """Update the current loading step (no event-loop reentry)."""
+        """Update the current loading step."""
         self.status_label.setText(text)
         self.status_label.setStyleSheet(f"color: {SPLASH_TEXT}; background: transparent; padding: 8px;")
-        self.repaint()
+        self._flush_paint()
 
     def step_done(self, text):
-        """Mark a step as complete and show it in the history (no event-loop reentry)."""
+        """Mark a step as complete and show it in the history."""
         self._steps_done.append(f"  {text}")
         self.steps_label.setText("\n".join(self._steps_done[-4:]))
-        self.repaint()
+        self._flush_paint()
 
     def fade_out(self, on_finished, duration=400):
         """Fade the splash out, then call on_finished."""
