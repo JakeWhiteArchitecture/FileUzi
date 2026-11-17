@@ -84,18 +84,16 @@ class SplashScreen(QWidget):
             self.move(x, y)
 
     def set_status(self, text):
-        """Update the current loading step."""
+        """Update the current loading step (no event-loop reentry)."""
         self.status_label.setText(text)
         self.status_label.setStyleSheet(f"color: {SPLASH_TEXT}; background: transparent; padding: 8px;")
-        from PyQt6.QtWidgets import QApplication
-        QApplication.processEvents()
+        self.repaint()
 
     def step_done(self, text):
-        """Mark a step as complete and show it in the history."""
+        """Mark a step as complete and show it in the history (no event-loop reentry)."""
         self._steps_done.append(f"  {text}")
         self.steps_label.setText("\n".join(self._steps_done[-4:]))
-        from PyQt6.QtWidgets import QApplication
-        QApplication.processEvents()
+        self.repaint()
 
     def fade_out(self, on_finished, duration=400):
         """Fade the splash out, then call on_finished."""
